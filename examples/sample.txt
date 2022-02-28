@@ -1,0 +1,30 @@
+begin b1
+    var x;
+    proc p1 a() is 
+        par a1       
+            x = 1
+        ||  
+            begin b2        
+            var t;
+            t=0;
+            par a2            
+                t=2
+            || 
+                begin b3      
+                    if (t==2) then
+                        x=x+2
+                    else
+                        skip
+                    fi
+                end
+            rap
+            remove t;
+            end
+        rap
+    end                  
+    x=0;
+    [[expects d1 SELF true]]
+    call c1 a()
+    [[ensures d1 SELF (x==3)]]
+    remove x;
+end

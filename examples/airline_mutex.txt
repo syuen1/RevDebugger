@@ -1,0 +1,74 @@
+begin b1
+  var fa;
+  var fb;
+  var turn;
+  var seats;
+  var agent1;
+  var agent2;
+
+  proc p1 airline() is
+    par a1
+      begin b2
+        while (agent1 == 1) do
+          begin b3
+              fa = 1;
+              while (fb == 1) do
+                if not(turn==0) then
+                    begin b4
+                        fa = 0;
+                        while not(turn==0) do skip od;
+                        fa = 1
+                    end
+                else
+                    skip
+                fi
+              od;
+              if (seats > 0) then
+                seats = seats - 1
+              else
+                agent1 = 0
+              fi;
+              turn = 1;
+              fa = 0
+          end
+        od
+      end 
+    ||
+      begin b5
+        while (agent2 == 1) do
+          begin b6
+              fb = 1;
+              while (fa == 1) do
+                if not(turn==1) then
+                  begin b7
+                      fb = 0;
+                      while not(turn==1) do skip od;
+                      fb = 1
+                  end
+                else
+                  skip
+                fi
+              od;
+              if (seats > 0) then
+                seats = seats - 1
+              else
+                agent2 = 0
+              fi;
+              turn = 0;
+              fb = 0
+          end
+        od
+      end
+    rap
+  end
+  seats = 3;
+  agent1 = 1;
+  agent2 = 1;
+  call c1 airline()
+  remove agent2;
+  remove agent1;
+  remove seats;
+  remove turn;
+  remove fa;
+  remove fb;
+end
