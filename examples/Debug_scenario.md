@@ -40,10 +40,12 @@
         remove agent1;
         remove seats;
     end
+```
 
 2. When ensure is violated, go back to expects d1 and update the contracts to check if the violation happens
 either in b2 and b3
 
+``` C
 begin b1
     var seats;
     var agent1;
@@ -85,12 +87,14 @@ begin b1
     remove agent1;
     remove seats;
 end
+```
 
 3. Let ensure d2 be violated.   Go back to expects d2.
 Once reaches d2, agent1 = 0 and seats is still negative.
 Go backwards again and stop at d2 where agent1=1.
 Update the contract to see if the illegal update happens in b2.
 
+```C
 begin b1
     var seats;
     var agent1;
@@ -134,13 +138,15 @@ begin b1
     remove agent1;
     remove seats;
 end
+```
 
-Add expects d4 and ensure d4.
+4. Add expects d4 and ensure d4.
 Trace forward the previous backward execution.  If ensures d4 is violated,
 go backwards till expects d4.   Or, it may reaches d2.  Then, go backwards
 again to d2 twice.  Update to add [[expects d5 SELF true *]] and 
 [[ensures d5 SELF seats > -1 *]] as follows.
 
+```C
 begin b1
     var seats;
     var agent1;
@@ -186,11 +192,13 @@ begin b1
     remove agent1;
     remove seats;
 end
+```
 
 
 
 4'. Or, at step 3 above, b2 waits till b3 is terminated.  No ensures will be violated.
 
+```C
 begin b1
     var seats;
     var agent1;
@@ -234,3 +242,4 @@ begin b1
     remove agent1;
     remove seats;
 end
+```
