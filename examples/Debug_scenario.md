@@ -2,43 +2,44 @@
 
 1. First a pair of expects and ensures is inserted to see 'seats' >=0
 
-begin b1
-    var seats;
-    var agent1;
-    var agent2;
-    proc p1 airline() is
-        par a1
-            begin b2
-                while (agent1==1) do
-                    if (seats>0) then
-                        seats=seats-1
-                    else
-                        agent1=0
-                    fi
-                od
-            end
-        ||     
-            begin b3
-                while (agent2==1) do
-                    if (seats>0) then
-                        seats=seats-1
-                    else   
-                        agent2=0
-                    fi
-                od
-            end
-        rap
+
+    begin b1
+        var seats;
+        var agent1;
+        var agent2;
+        proc p1 airline() is
+            par a1
+                begin b2
+                    while (agent1==1) do
+                        if (seats>0) then
+                            seats=seats-1
+                        else
+                            agent1=0
+                        fi
+                    od
+                end
+            ||     
+                begin b3
+                    while (agent2==1) do
+                        if (seats>0) then
+                            seats=seats-1
+                        else   
+                            agent2=0
+                        fi
+                    od
+                end
+            rap
+        end
+        seats=3;
+        agent1=1;
+        agent2=1;
+        [[expects d1 SELF true *]]
+        call c1 airline()
+        [[ensures d1 SELF (seats>-1) *]]
+        remove agent2;
+        remove agent1;
+        remove seats;
     end
-    seats=3;
-    agent1=1;
-    agent2=1;
-    [[expects d1 SELF true *]]
-    call c1 airline()
-    [[ensures d1 SELF (seats>-1) *]]
-    remove agent2;
-    remove agent1;
-    remove seats;
-end
 
 2. When ensure is violated, go back to expects d1 and update the contracts to check if the violation happens
 either in b2 and b3
