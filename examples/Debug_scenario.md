@@ -2,7 +2,7 @@
 
 1. First a pair of expects and ensures is inserted to see 'seats' >=0
 
-
+```C
     begin b1
         var seats;
         var agent1;
