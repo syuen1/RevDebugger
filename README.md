@@ -1,4 +1,7 @@
 # RevDebugger
+
+## Debugger is still under development (Mar 4, 2022)
+
 How to use Parser:
 
 [convert a sorce code to a forward byte code]
