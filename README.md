@@ -1,6 +1,7 @@
 # RevDebugger
 
 ## Debugger is still under development (Mar 4, 2022)
+# Not working properly yet. (Mar 7, 2022)
 
 How to use Parser:
 
