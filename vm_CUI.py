@@ -1,9 +1,12 @@
+# A reversible debugger for parallel imperarative programs
+# 2022/03/10 2:45 
+# Shoji Yuen and Takashi Ikeda, 2022
 import re
 import sys
 import os
 import time
 import difflib
-from multiprocessing import Process, Value, Array, Lock, Queue, Manager
+from multiprocessing import Process, Value, Array, Lock, Queue, Manager, Semaphore
 codes=[]
 com=[]
 opr=[]
@@ -35,7 +38,8 @@ def pop1(stack,top):
 #search variable table, and return variable's address
 def search_table(opr,process_path):
     with open("variable_table.txt",'r') as f:
-            variable_table=f.read().split('\n')
+        variable_table=f.read().split('\n')
+    f.close()
     t=0
     address=0
     for i in range(0,len(variable_table)-1,1):
@@ -54,109 +58,171 @@ def search_table(opr,process_path):
                     address=i
                     t=match_count
     return address
-    
 
 #execution of each instruction
-def executedcommand(stack,rstack,lstack,com,opr,back_com,back_opr,pc,pre,top,rtop,ltop,address,value,tablecount,variable_region,lock,process_number,process_path,count_pc,process_count,terminate_flag,flag_number,mlock,mlock2,program_counter,q,q2,q3,mode,mchange_flag,monitor_process_count,now_process_count,process_back_ori_num,step_flag):
-    if com[pc]==1 and (mode.value==0 or mode.value==3 or mode.value==4):#push　push immediate value onto own operation stack
-        top=push(opr[pc],stack,top)
+def executedcommand(stack,rstack,lstack,com,opr,back_com,back_opr,\
+    pc,pre,top,rtop,ltop,address,value,tablecount,variable_region,lock,\
+        process_number,process_path,count_pc,process_count,terminate_flag,flag_number,\
+        mlock,mlock2,program_counter,q,q2,q3,mode,mchange_flag,\
+        monitor_process_count,now_process_count,process_back_ori_num,step_flag,jmp_flag,monitor_turn,p_turn):
+    #print("exec command called")
+    #push push immediate value onto own operation stack
+    if com[pc]==1 and mode.value!=1:
+        if (mode.value==0 or mode.value==4):
+            top=push(opr[pc],stack,top)
+        # no operation for mode 3
         pre=pc
         return (pc+1,pre,stack,top,rtop,tablecount,process_path)
-    elif com[pc]==2 and (mode.value==0 or mode.value==3 or mode.value==4):#load　load value from the variable stack and push its value onto own operation stack
-        value.acquire()
-        c=value[search_table(opr[pc],process_path)]
-        value.release()
-        top=push(c,stack,top)
+    #load load value from the variable stack and push its value onto own operation stack
+    elif com[pc]==2 and mode.value!=1:
+        if (mode.value==0 or mode.value==4):
+            value.acquire()
+            c=value[search_table(opr[pc],process_path)]
+            value.release()
+            top=push(c,stack,top)
+        # no operation for mode 3
         pre=pc
         return (pc+1,pre,stack,top,rtop,tablecount,process_path)
-    elif com[pc]==3 and (mode.value==0 or mode.value==3 or mode.value==4):#store store variable value to the variable stack and the value stack
-        value.acquire()
-        with open("value_stack.txt",'a') as f:
-            f.write(str(value[search_table(opr[pc],process_path)])+' '+str(process_number)+'.'+process_path+'\n')
-        f.close()
-        rtop.value=rtop.value+2
-        (value[search_table(opr[pc],process_path)],top)=pop1(stack,top)
-        value.release()
-        pre=pc
-        return (pc+1,pre,stack,top,rtop,tablecount,process_path)
-    elif com[pc]==4 and (mode.value==0 or mode.value==3 or mode.value==4):#jpc pop the value at the top of own stack and jumps to the address of the operand if the value is 1
-        (c,top)=pop1(stack,top)
-        if c==1:
-            pre=pc
-            pc=opr[pc]-2
-        return (pc+1,pre,stack,top,rtop,tablecount,process_path)
-    elif com[pc]==5 and (mode.value==0 or mode.value==3 or mode.value==4):#jmp　unconditionally jump to the address of the operand value
-        pre=pc
-        pc=opr[pc]-2
-        return (pc+1,pre,stack,top,rtop,tablecount,process_path)
-    elif com[pc]==6 and (mode.value==0 or mode.value==3 or mode.value==4):#op　perform an operation of the type of the operand
-        if (opr[pc])==0:#'+'
-            (c,top)=pop1(stack,top)
-            (d,top)=pop1(stack,top)
-            top=push(c+d,stack,top)
-        elif (opr[pc])==1:#'*'
-            (c,top)=pop1(stack,top)
-            (d,top)=pop1(stack,top)
-            top=push(c*d,stack,top)
-        elif opr[pc]==2:#'-'
-            (c,top)=pop1(stack,top)
-            (d,top)=pop1(stack,top)
-            top=push(d-c,stack,top)
-        elif opr[pc]==3:#'>'
-            (c,top)=pop1(stack,top)
-            (d,top)=pop1(stack,top)
-            if d>c:
-                top=push(1,stack,top)
-            else:
-                top=push(0,stack,top)
-        elif opr[pc]==4:#'=='
-            (c,top)=pop1(stack,top)
-            (d,top)=pop1(stack,top)
-            if d==c:
-                top=push(1,stack,top)
-            else:
-                top=push(0,stack,top)
-        elif opr[pc]==5:#'not'
-            (c,top)=pop1(stack,top)
-            if c==0:
-                top=push(1,stack,top)
-            elif c==1:
-                top=push(0,stack,top)
-        pre=pc
-        return (pc+1,pre,stack,top,rtop,tablecount,process_path)
-    elif com[pc]==7 and (mode.value==0 or mode.value==3 or mode.value==4):#label　load the label stack with the value of the PC before the jump and the process number and block path
-        if args[2]=='f' or args[2]=='df':
-            with open("label_stack.txt",'a') as f:
-                f.write(str(pre+1)+' '+str(process_number)+'.'+process_path+'\n')
+    #store variable value to the variable stack and the value stack
+    elif com[pc]==3 and mode.value!=1:
+        if (mode.value==0 or mode.value==4):
+            value.acquire()
+            (c,top) = pop1(stack,top)
+            with open("value_stack.txt",'a') as f:
+                f.write(str(value[search_table(opr[pc],process_path)])+' '+str(process_number)+'.'+process_path+' '+str(c)+'\n')
             f.close()
-            ltop.value = ltop.value+2
+            value[search_table(opr[pc],process_path)]=c
+            value.release()
+        else: # mode.value == 3 rtop increased by 3 by execution
+#            print("rtop=",rtop.value)
+            with open("value_stack.txt",'r') as f:
+                rstk = f.read().split()
+            f.close()
+            value[search_table(opr[pc],process_path)]=int(rstk[rtop.value+2])
+#            print("pc="+str(pc)+" rtop="+str(rtop.value)+" rstk=",rstk)
+            rtop.value = rtop.value + 3
         pre=pc
         return (pc+1,pre,stack,top,rtop,tablecount,process_path)
-    elif back_com[pc]==21 and mode.value==1:#rjmp　pop a value from the label stack and jump to its PC
-        s2=re.search(r'([a-z]\d+\.)+',lstack[ltop.value+1])
+    #jpc pop the value at the top of own stack and jumps to the address of the operand if the value is 1
+    elif com[pc]==4 and mode.value!=1:
+        if (mode.value==0 or  mode.value==4):
+            (c,top)=pop1(stack,top)
+            pre=pc
+            if c==1:
+                pc=opr[pc]-2
+                #
+                with open("jump_stack.txt",'a') as f:
+                    f.write('1 '+process_number+'\n')
+                f.close()
+            else:
+                with open("jump_stack.txt",'a') as f:
+                    f.write('0 '+process_number+'\n')
+                f.close()
+        else: # mode 3
+            pre = pc
+            if jmp_flag==1:
+                pc = opr[pc] -2
+            # proceed to next result of jump
+            # didnt branch
+            ltop.value = ltop.value + 2
+#            print("mode 3 jpc: pid="+process_number+"jmp_flag="+str(jmp_flag))
+        return (pc+1,pre,stack,top,rtop,tablecount,process_path)
+    #jmp unconditionally jump to the address of the operand value
+    elif com[pc]==5 and mode.value!=1:
+        pre = pc
+        pc = opr[pc]-2
+        if mode.value==0 or mode.value==4: # record jump happened
+            with open("jump_stack.txt",'a') as f:
+                f.write('1 '+process_number+'\n')
+            f.close()
+        else: # mode 3
+            ltop.value = ltop.value + 2
+        return (pc+1,pre,stack,top,rtop,tablecount,process_path)
+    #op perform an operation of the type of the operand
+    elif com[pc]==6 and mode.value!=1:
+        if (mode.value==0 or mode.value==4):
+            if (opr[pc])==0:#'+'
+                (c,top)=pop1(stack,top)
+                (d,top)=pop1(stack,top)
+                top=push(c+d,stack,top)
+            elif (opr[pc])==1:#'*'
+                (c,top)=pop1(stack,top)
+                (d,top)=pop1(stack,top)
+                top=push(c*d,stack,top)
+            elif opr[pc]==2:#'-'
+                (c,top)=pop1(stack,top)
+                (d,top)=pop1(stack,top)
+                top=push(d-c,stack,top)
+            elif opr[pc]==3:#'>'
+                (c,top)=pop1(stack,top)
+                (d,top)=pop1(stack,top)
+                if d>c:
+                    top=push(1,stack,top)
+                else:
+                    top=push(0,stack,top)
+            elif opr[pc]==4:#'=='
+                (c,top)=pop1(stack,top)
+                (d,top)=pop1(stack,top)
+                if d==c:
+                    top=push(1,stack,top)
+                else:
+                    top=push(0,stack,top)
+            elif opr[pc]==5:#'not'
+                (c,top)=pop1(stack,top)
+                if c==0:
+                    top=push(1,stack,top)
+                elif c==1:
+                    top=push(0,stack,top)
+        pre=pc
+        # noting for mode 3
+        return (pc+1,pre,stack,top,rtop,tablecount,process_path)
+    #label load the label stack with the value of the PC before the jump and the process number and block path
+    elif com[pc]==7 and mode.value!=1:
+        if (mode.value==0 or mode.value==4):
+            if args[2]=='f' or args[2]=='df':
+                with open("label_stack.txt",'a') as f:
+                    f.write(str(pre+1)+' '+str(process_number)+'.'+process_path+'\n')
+                f.close()
+            # in mode 3, track the last entry of label_stack
+        pre=pc
+        return (pc+1,pre,stack,top,rtop,tablecount,process_path)
+    elif back_com[pc] == 7 and (mode.value==1): # jmp or jpc in the forward mode
+        # reversed a jump in mode 1 for mode 3
+        # in mode 3, first jpc/jmp follow as jstack[jtop]
+        return (pc+1,pre,stack,top,rtop,tablecount,process_path)
+    #rjmp pop a value from the label stack and jump to its PC
+    # ltop decreased by 2 [yuen]
+    elif back_com[pc]==21 and mode.value==1:
+        s2=re.search(r'([a-z]\d+\.)+',lstack[ltop.value-2+1])
         process_path=s2.group()+"E"
         if process_path[0]=='p':
             s3=re.search(r'(p\d+\.)(c\d+\.)',process_path)
             process_path=process_path[len(s3.group()):len(process_path)]
-        a=count_pc-int(lstack[ltop.value])
+        a=count_pc-int(lstack[ltop.value-2])
         ltop.value=ltop.value-2
         pre=pc
         return (a,pre,stack,top,rtop,tablecount,process_path)
-    elif back_com[pc]==22 and mode.value==1:#restore　pop a value from the value stack and stores it on the variable stack
-        s2=re.search(r'([a-z]\d+\.)+',rstack[rtop.value+1])
+    #restore pop a value from the value stack and stores it on the variable stack
+    elif back_com[pc]==22 and mode.value==1:
+        s2=re.search(r'([a-z]\d+\.)+',rstack[rtop.value-3+1])
         process_path=s2.group()+"E"
-        value[search_table(back_opr[pc],process_path)]=int(rstack[rtop.value])
-        rtop.value=rtop.value-2
+        value[search_table(back_opr[pc],process_path)]=int(rstack[rtop.value-3])
+        rtop.value=rtop.value-3 # [yuen]
         pre=pc
         return (pc+1,pre,stack,top,rtop,tablecount,process_path)
-    elif (com[pc]==19 and (mode.value==0 or mode.value==3 or mode.value==4)) or (back_com[pc]==28  and mode.value==1):#nop　no operation
+    #nop no operation
+    elif (com[pc]==19 and (mode.value==0 or mode.value==3 or mode.value==4)) or (back_com[pc]==28  and mode.value==1):
         pre=pc
         return (pc+1,pre,stack,top,rtop,tablecount,process_path)
-    elif (com[pc]==8  and (mode.value==0 or mode.value==3 or mode.value==4)) or (back_com[pc]==23 and mode.value==1):#par　indicates the start and end of a parallel block
+    #par indicates the start and end of a parallel block
+    elif (com[pc]==8  and (mode.value==0 or mode.value==3 or mode.value==4))\
+        or (back_com[pc]==23 and mode.value==1):
         pre=pc
         return (pc+1,pre,stack,top,rtop,tablecount,process_path)
-    elif com[pc]==9 and (mode.value==0 or mode.value==3 or mode.value==4):#alloc　allocate a new variable address and set its initial value to 0
-        if args[2]=='f' or args[2]=='df':
+    #alloc allocate a new variable address and set its initial value to 0
+    elif com[pc]==9 and mode.value!=1:
+    #   if args[2]=='f' or args[2]=='df':
+        if mode.value == 0 or mode.value == 4 or mode.value == 3:
             with open("variable_table.txt",'r') as f:
                 t1=f.read().split('\n')
             var_flag=0
@@ -164,13 +230,14 @@ def executedcommand(stack,rstack,lstack,com,opr,back_com,back_opr,pc,pre,top,rto
             for i in range(0,len(t1),1):
                 if t1[i]==s1:
                     var_flag=1
-            if var_flag==0:
+            if var_flag==0: # variable not allocated
                 value[tablecount.value] = 0
                 variable_region.append(0)
                 with open("variable_table.txt",'a') as f:
                     f.write(str(opr[pc])+'.'+process_path+'      0\n')
                 tablecount.value=tablecount.value+1
-        elif args[2]=='b' or args[2]=='db':
+        '''    
+        elif args[2]=='b' or args[2]=='db': # code not used?
             variable_path=search_table(opr[pc],process_path)
             variable_region.append(0)
             with open("variable_table.txt",'r') as f:
@@ -179,19 +246,23 @@ def executedcommand(stack,rstack,lstack,com,opr,back_com,back_opr,pc,pre,top,rto
             variable_value=int(s.group().strip(' '))
             value[search_table(opr[pc],process_path)]=variable_value
             tablecount.value=tablecount.value+1
+        '''
         pre=pc
         return (pc+1,pre,stack,top,rtop,tablecount,process_path)
-    elif com[pc]==10 and (mode.value==0 or mode.value==3 or mode.value==4):#free　release a variable address and stores the previous value on the value stack
-        table_address=search_table(opr[pc],process_path)
-        value.acquire()
-        with open("value_stack.txt",'a') as f:
-            f.write(str(value[search_table(opr[pc],process_path)])+' '+str(process_number)+'.'+process_path+'\n')
-        f.close()
-        value.release()
-        value[table_address]=0
+    #free release a variable address and stores the previous value on the value stack
+    elif com[pc]==10 and mode.value!=1:
+        if mode.value == 0 or mode.value == 4:
+            table_address=search_table(opr[pc],process_path)
+            value.acquire()
+            with open("value_stack.txt",'a') as f:
+                f.write(str(value[search_table(opr[pc],process_path)])+' '+str(process_number)+'.'+process_path+' b'+'\n')
+            f.close()
+            value.release()
+            value[table_address]=0
         pre=pc
         return (pc+1,pre,stack,top,rtop,tablecount,process_path)
-    elif com[pc]==11 and (mode.value==0 or mode.value==3 or mode.value==4):#proc　start the procedure, execute the label and block instructions
+    #proc start the procedure, execute the label and block instructions
+    elif com[pc]==11 and (mode.value==0 or mode.value==3 or mode.value==4):
         process_path='p'+str(opr[pc])+'.'+process_path
         if args[2]=='f' or args[2]=='df':
             with open("label_stack.txt",'a') as f:
@@ -199,28 +270,37 @@ def executedcommand(stack,rstack,lstack,com,opr,back_com,back_opr,pc,pre,top,rto
             f.close()
         pre=pc
         return (pc+1,pre,stack,top,rtop,tablecount,process_path)
-    elif com[pc]==12 and (mode.value==0 or mode.value==3 or mode.value==4):#ret　end the procedure
-        p_lstack=[]
-        with open("label_stack.txt",'r') as f:
-            p_lstack=f.read().split()
-        f.close()
-        if process_path[0]!='p':
-            process_path='p'+str(opr[pc])+'.'+process_path
-        for i in range(0,len(p_lstack),1):
-            if (i%2)==1:
-                t1=re.search(r'([a-z]\d+\.)+E',p_lstack[i])
-                if t1.group()==process_path:
-                    c=int(p_lstack[i-1])
-                    break
-        for i in range(0,len(process_path),1):
-            if process_path[i] == '.':
-                process_path=process_path[i+1:len(process_path)]
-                break
+    #ret end the procedure
+    elif com[pc]==12 and mode.value!=1:
         pre=pc
-        return (c,pre,stack,top,rtop,tablecount,process_path)
-    elif com[pc]==13 and (mode.value==0 or mode.value==3 or mode.value==4):#block　add path
-        if com[pc+3]==14 and (com[pc+1]==5 or com[pc+1]==8):
-            process_path='c'+str(opr[pc])+'.'+process_path
+        if mode.value==0 or mode.value==3 or mode.value==4:
+            p_lstack=[]
+            with open("label_stack.txt",'r') as f:
+                p_lstack=f.read().split()
+            f.close()
+            if process_path[0]!='p':
+                process_path='p'+str(opr[pc])+'.'+process_path
+            for i in range(0,len(p_lstack),1):
+                if (i%2)==1: # changed by [yuen]
+                    t1=re.search(r'([a-z]\d+\.)+E',p_lstack[i])
+                    if t1.group()==process_path:
+                        c=int(p_lstack[i-1])
+                        break
+            for i in range(0,len(process_path),1):
+                if process_path[i] == '.':
+                    process_path=process_path[i+1:len(process_path)]
+                    break
+            if mode.value==0 or mode.value ==4:
+                with open("jump_stack.txt",'a') as f:
+                    f.write('1 '+str(process_number)+'\n')
+                f.close()
+            else: # mode 3
+                ltop.value = ltop.value + 2
+        return (c,pre,stack,top,rtop,tablecount,process_path) # procedure path is lost !!
+    #block add path
+    elif com[pc]==13 and (mode.value==0 or mode.value==3 or mode.value==4):
+        if com[pc+3]==14 and (com[pc+1]==5 or com[pc+1]==8): # pc+3 end  pc+1 jump/par  call block
+            process_path='c'+str(opr[pc])+'.'+process_path # call path
         else:
             if process_path!='E':
                 t1=re.search(r'b\d+',process_path)
@@ -232,21 +312,25 @@ def executedcommand(stack,rstack,lstack,com,opr,back_com,back_opr,pc,pre,top,rto
                 process_path='b'+str(opr[pc])+'.'+process_path
         pre=pc
         return (pc+1,pre,stack,top,rtop,tablecount,process_path)
-    elif com[pc]==14 and (mode.value==0 or mode.value==3 or mode.value==4):#end　delete path
+    #end delete path
+    elif com[pc]==14 and (mode.value==0 or mode.value==3 or mode.value==4):
         for i in range(0,len(process_path),1):
             if process_path[i] == '.':
                 process_path=process_path[i+1:len(process_path)]
                 break
         pre=pc
         return (pc+1,pre,stack,top,rtop,tablecount,process_path)
-    elif com[pc]==15 and (mode.value==0 or mode.value==3 or mode.value==4):#fork generate parallel processes
+    #fork generate parallel processes
+    elif com[pc]==15 and (mode.value==0 or mode.value==3 or mode.value==4):
         lock.release()#lock.release()
         process={}
+        mlock2.acquire() # exclude from the other forking processes until finishing makeing process names
         start_process_count = process_count.value
         already_terminate = {}
         now_process_count.value=now_process_count.value-1
-        f=open('a'+(str)(opr[pc])+'.txt',mode='r')
-        tables=f.read()
+        with open('a'+(str)(opr[pc])+'.txt',mode='r') as f:
+            tables=f.read()
+        f.close()
         #refer to the parallel block table, load the start and end address respectively, and give them to each process to generate a process
         for i in range(0,len(tables),10):
             t1=tables[i:i+4]
@@ -254,12 +338,17 @@ def executedcommand(stack,rstack,lstack,com,opr,back_com,back_opr,pc,pre,top,rto
             t2=tables[i+5:i+9]
             s2=re.search(r'\d+',t2)
             my_flag_number=process_count.value+1
-            print("my_flag_number"+str(my_flag_number))
+#            print("my_flag_number"+str(my_flag_number))
             terminate_flag[my_flag_number]=0
-            process[process_count.value]=Process(target=execution,args=(com,opr,back_com,back_opr,(int)(s1.group())-1,(int)(s2.group()),count_pc,stack,address,value,tablecount,rstack,lstack,rtop,ltop,0,variable_region,lock,process_number + '.' + str(process_count.value-start_process_count+1),process_path,process_count,terminate_flag,my_flag_number,mlock,mlock2,program_counter,q,q2,q3,mode,mchange_flag,monitor_process_count,now_process_count,process_back_ori_num,step_flag))
+            process[process_count.value]=Process(target=execution,args=(com,opr,back_com,back_opr,(int)(s1.group())-1,(int)(s2.group()),\
+                count_pc,stack,address,value,tablecount,rstack,lstack,rtop,ltop,0,variable_region,lock,\
+                    process_number + '.' + str(process_count.value-start_process_count+1),process_path,process_count,\
+                        terminate_flag,my_flag_number,mlock,mlock2,program_counter,q,q2,q3,mode,mchange_flag,\
+                            monitor_process_count,now_process_count,process_back_ori_num,step_flag,monitor_turn,p_turn,0))
             process_count.value=process_count.value+1
         end_process_count = process_count.value
-        for i in range(start_process_count,process_count.value,1):
+        mlock2.release() # all subprocesses are ready
+        for i in range(start_process_count,end_process_count,1): # changed from process_count to end_process_count
             process[i].start()
         terminate_count=0
         #Monitors whether the process it generated is terminated or not, if it is terminated, terminate the process completely
@@ -274,19 +363,26 @@ def executedcommand(stack,rstack,lstack,com,opr,back_com,back_opr,pc,pre,top,rto
                     terminate_count=terminate_count+1
                     if not process[i].is_alive():
                         process[i].join()
-            if terminate_count==end_process_count-start_process_count:
+            if terminate_count==end_process_count-start_process_count: # all processes are terminated
                 pre=pc
                 lock.acquire()#lock.acquire()
                 now_process_count.value=now_process_count.value+1
                 process_count.value=process_count.value-terminate_count
-                return (int(s2.group()),pre,stack,top,rtop,tablecount,process_path)
+                # Very trick situation happens when the direction is changed while waiting for terminations
+                # subprocesses terminate either forwards or backwards.  The forking process acts as if it executed r_merge instruction.
+                if mode.value == 1:
+                    return (pre,int(s2.group())+1,stack,top,rtop,tablecount,process_path) # direction is changed while waiting for terminations
+                else:
+                    return (int(s2.group())+1,pre,stack,top,rtop,tablecount,process_path) # move to merge [yuen] pc must be next of last s2
         pre=pc
         lock.acquire()#lock.acquire()
         return (a,pre,stack,top,rtop,tablecount,process_path)
-    elif com[pc]==16 and (mode.value==0 or mode.value==3 or mode.value==4):#merge end the parallel block
+    #merge end the parallel block
+    elif com[pc]==16 and (mode.value==0 or mode.value==3 or mode.value==4):
         pre=pc
         return (pc+1,pre,stack,top,rtop,tablecount,process_path)
-    elif com[pc]==17 and (mode.value==0 or mode.value==3 or mode.value==4):#func start the function
+    #func start the function
+    elif com[pc]==17 and (mode.value==0 or mode.value==3 or mode.value==4):
         process_path='f'+str(opr[pc])+'.'+process_path
         if args[2]=='f' or args[2]=='df':
             with open("label_stack.txt",'a') as f:
@@ -294,7 +390,8 @@ def executedcommand(stack,rstack,lstack,com,opr,back_com,back_opr,pc,pre,top,rto
             f.close()
         pre=pc
         return (pc+1,pre,stack,top,rtop,tablecount,process_path)
-    elif com[pc]==18 and (mode.value==0 or mode.value==3 or mode.value==4):#f_return end the funtion
+    #f_return end the funtion
+    elif com[pc]==18 and (mode.value==0 or mode.value==3 or mode.value==4):
         p_lstack=[]
         with open("label_stack.txt",'r') as f:
             p_lstack=f.read().split()
@@ -302,7 +399,7 @@ def executedcommand(stack,rstack,lstack,com,opr,back_com,back_opr,pc,pre,top,rto
         if process_path[0]!='f':
             process_path='f'+str(opr[pc])+'.'+process_path
         for i in range(0,len(p_lstack),1):
-            if (i%2)==1:
+            if (i%3)==1: # changed by [yuen]
                 t1=re.search(r'([a-z]\d+\.)+E',p_lstack[i])
                 if t1.group()==process_path:
                     c=int(p_lstack[i-1])
@@ -313,8 +410,9 @@ def executedcommand(stack,rstack,lstack,com,opr,back_com,back_opr,pc,pre,top,rto
                 break
         pre=pc
         return (c,pre,stack,top,rtop,tablecount,process_path)
-    elif back_com[pc]==24 and mode.value==1:#r_alloc the alloc instruction in the reverse direction, pop a value form the value stack and stores it at the address of the allocated variable stack
-        s2=re.search(r'([a-z]\d+\.)+',rstack[rtop.value+1])
+    #r_alloc the alloc instruction in the reverse direction, pop a value form the value stack and stores it at the address of the allocated variable stack
+    elif back_com[pc]==24 and mode.value==1:
+        s2=re.search(r'([a-z]\d+\.)+',rstack[rtop.value-3+1])
         process_path=s2.group()+'E'
         with open("variable_table.txt",'r') as f:
             t1=f.read().split('\n')
@@ -328,16 +426,19 @@ def executedcommand(stack,rstack,lstack,com,opr,back_com,back_opr,pc,pre,top,rto
             with open("variable_table.txt",'a') as f:
                 f.write(str(back_opr[pc])+'.'+process_path+'E      0\n')
             tablecount.value=tablecount.value+1
-        value[search_table(back_opr[pc],process_path)]=int(rstack[rtop.value])
-        rtop.value=rtop.value-2
+        value[search_table(back_opr[pc],process_path)]=int(rstack[rtop.value-3])
+        rtop.value=rtop.value-3 # [yuen]
         pre=pc
         return (pc+1,pre,stack,top,rtop,tablecount,process_path)
-    elif back_com[pc]==25 and mode.value==1:#r_free free instuctions in the reverse direction
+    #r_free free instuctions in the reverse direction
+    elif back_com[pc]==25 and mode.value==1:
         pre=pc
         return (pc+1,pre,stack,top,rtop,tablecount,process_path)
-    elif back_com[pc]==26 and mode.value==1:#r_fork fork instructions in the reverse direction
+    #r_fork fork instructions in the reverse direction
+    elif back_com[pc]==26 and mode.value==1:
         lock.release()
         process={}
+        mlock2.acquire()
         start_process_count = process_count.value
         now_process_count.value=now_process_count.value-1
         f=open('a'+(str)(back_opr[pc])+'.txt',mode='r')
@@ -346,15 +447,23 @@ def executedcommand(stack,rstack,lstack,com,opr,back_com,back_opr,pc,pre,top,rto
         tables_process_number = int(len(tables)/10)
         for i in range(0,len(tables),10):
             t1=tables[i:i+4]
-            s1=re.search(r'\d+',t1)
+            s1=re.search(r'\d+',t1) # end address is count_pc-s1+1
             t2=tables[i+5:i+9]
-            s2=re.search(r'\d+',t2)
+            s2=re.search(r'\d+',t2) # start address is count_pc-s2+1
             my_flag_number=process_count.value+1
             terminate_flag[my_flag_number]=0
-            process[process_count.value]=Process(target=execution,args=(com,opr,back_com,back_opr,count_pc-(int)(s2.group()),count_pc-(int)(s1.group())+1,count_pc,stack,address,value,tablecount,rstack,lstack,rtop,ltop,0,variable_region,lock,process_number + '.' + str(process_count.value-start_process_count+1),process_path,process_count,terminate_flag,my_flag_number,mlock,mlock2,program_counter,q,q2,q3,mode,mchange_flag,monitor_process_count,now_process_count,process_back_ori_num,step_flag))
+            revnew_process_number = process_number + '.' + str(process_count.value-start_process_count+1) # [yuen]
+            # mchange_flag ?? doublely reverse???  #  
+            process[process_count.value]=Process(target=execution,args=(com,opr,back_com,back_opr,count_pc-(int)(s2.group()),\
+                count_pc-(int)(s1.group())+1,count_pc,stack,address,value,tablecount,rstack,lstack,rtop,ltop,0,variable_region,\
+                    lock,revnew_process_number,process_path,\
+                        process_count,terminate_flag,my_flag_number,mlock,mlock2,program_counter,q,q2,q3,mode,mchange_flag,\
+                            monitor_process_count,now_process_count,process_back_ori_num,step_flag,monitor_turn,p_turn,1))
             process_count.value=process_count.value+1
+        #    print("r_fork "+str(count_pc-(int)(s2.group()))+":"+str(count_pc-(int)(s1.group())+1))
         end_process_count = process_count.value
-        for i in range(start_process_count,process_count.value,1):
+        mlock2.release()
+        for i in range(start_process_count,end_process_count,1):
             process[i].start()
         terminate_count=0
         for i in range(0,100,1):
@@ -370,17 +479,21 @@ def executedcommand(stack,rstack,lstack,com,opr,back_com,back_opr,pc,pre,top,rto
                     terminate_count=terminate_count+1
                     if not process[i].is_alive():
                         process[i].join()
-            if terminate_count==end_process_count-start_process_count:
+            if terminate_count==end_process_count-start_process_count: # all subporcesses are terminated
                 pre=pc
                 lock.acquire()
-                now_process_count.value=now_process_count.value+1
-                ret_pc=count_pc-int(s3.group())+1
-                if (mode.value==3 or mode.value==4) and com[ret_pc]!=16:
-                    ret_pc=int(s2.group())
-                    t1=tables[0:4]
-                    s1=re.search(r'\d+',t1)
-                    pre=int(s1.group())-2
                 process_count.value=process_count.value-terminate_count
+                now_process_count.value=now_process_count.value+1       # resume this process               
+                if (mode.value==3 or mode.value==4) and com[ret_pc]!=16: # mode is changed while waiting
+                #    t1=tables[0:4]
+                #    s1=re.search(r'\d+',t1)
+                    pre=int(s3.group())-1    # beginning address forward of the block
+                    ret_pc=int(s2.group())+1 # end address forward of he block               
+                else: # mode 1 Still in the backward mode
+                    pre=pc
+                    ret_pc=count_pc-int(s3.group())+2
+                # Very trick situation happens when the direction is changed while waiting for terminations
+                # subprocesses terminate either forwards or backwards.  The forking process acts as if it executed r_merge instruction
                 return (ret_pc,pre,stack,top,rtop,tablecount,process_path)
         for i in range(start_process_count,process_count.value,1):
             process[i].join()
@@ -388,37 +501,56 @@ def executedcommand(stack,rstack,lstack,com,opr,back_com,back_opr,pc,pre,top,rto
         pre=pc
         lock.acquire()
         return (a,pre,stack,top,rtop,tablecount,process_path)
-    elif back_com[pc]==27 and mode.value==1:#r_merge merge instruction in the reverse direction
+    #r_merge merge instruction in the reverse direction
+    elif back_com[pc]==27 and mode.value==1:
         pre=pc
         return (pc+1,pre,stack,top,rtop,tablecount,process_path)
 
-#This function executes bytecodes.
-def execution(command,opr,back_com,back_opr,start,end,count_pc,stack,address,value,tablecount,rstack,lstack,rtop,ltop,endflag,variable_region,lock,process_number,process_path,process_count,terminate_flag,flag_number,mlock,mlock2,program_counter,q,q2,q3,mode,mchange_flag,monitor_process_count,now_process_count,process_back_ori_num,step_flag):
+#This function executes bytecodes.  wrapping Process invocation
+def execution(command,opr,back_com,back_opr,start,end,count_pc,\
+    stack,address,value,tablecount,rstack,lstack,rtop,ltop,endflag,variable_region,\
+        lock,process_number,process_path,process_count,terminate_flag,flag_number,\
+            mlock,mlock2,program_counter,q,q2,q3,mode,mchange_flag,monitor_process_count,\
+            now_process_count,process_back_ori_num,step_flag,monitor_turn,p_turn,rstart_flag):
     pc=start
     pre=pc
-    top=len(stack)
+    top=len(stack) # local stack
     num_variables = tablecount.value
-    recovered_statement_flag=0
-    now_process_count.value=now_process_count.value+1
+    recovered_statement_flag=0 # inversion flag
+    now_process_count.value=now_process_count.value+1 # process is started and alive
     my_terminate_flag=0
-    end_skip_flag=0
+    end_skip_flag=0 # debug use
+    jtop = -1 # jump counter
+    jstack = []
+    jmp_flag = 0
     path_record='E'
-    rough_mode_change=0
+    # rough_mode_change=0
+    next_process = '-1'  # for mode 3
     start_exec=0
+    pre_mode = 0
+    my_rstart_flag=rstart_flag # rstart_flag = 1 then the process invoded in mode 1
+    my_revinit=0
     #forward
     if args[2]=='df' or args[2]=='f':
         while pc!=end or (pc==end and end_skip_flag==1) or command[pre]==15 or my_terminate_flag==1:
+          if my_terminate_flag == 1:
+              print("My terminate flag is 1")
+          if p_turn.value == 1:
             lock.acquire()
+            p_turn.value = 0
+            monitor_turn.value = 1
             program_counter.value=pc
-            if (command[pc]!=15 and (mode.value==0 or mode.value==3 or mode.value==4)) or (back_com[pc]!=26 and mode.value==1) or mode.value==2:
+            if (command[pc]!=15 and (mode.value==0 or mode.value==3 or mode.value==4))\
+                or (back_com[pc]!=26 and mode.value==1) or mode.value==2:
                 mlock.acquire()
             q.put(process_path)
             q2.put(process_number)
             q3.put(flag_number)
-            if rough_mode_change==0 and mode.value==5:
-                mode.value=4
-                rough_mode_change=1
-            if mode.value==0:
+            # mode 0
+            if mode.value==0 or mode.value==4:
+                if my_revinit == 0 and mode.value==4:
+                    my_revinit = 1
+                #
                 if command[pc]==1:
                     command1='   ipush'
                 elif command[pc]==2:
@@ -458,15 +590,21 @@ def execution(command,opr,back_com,back_opr,start,end,count_pc,stack,address,val
                 elif command[pc]==19:
                     command1='     nop'
                 with open("output.txt",'a') as f:
-                    f.write("~~~~~~~~Process"+process_number+" execute~~~~~~~~\n")
+                    f.write("~~~~~~~~Process "+" "+process_number+" forward execute~~~~~~(mode="+str(mode.value)+")~~\n")
                     f.write("path : "+process_path+"\n")
                     f.write("pc = "+str(pc+1)+"["+str(process_back_ori_num[count_pc-pc-1])+"]   command = "+command1+":"+(str)(command[pc])+"    operand = "+str(opr[pc])+"\n")
-                print("~~~~~~~~Process"+process_number+" execute~~~~~~~~")
+                print("~~~~~~~~Process "+" "+process_number+" forward execute~~~~~~(mode="+str(mode.value)+")~~")
                 print("path : "+process_path)
                 print("pc = "+str(pc+1)+" [line:"+str(process_back_ori_num[count_pc-pc-1])+"]   command = "+command1+":"+(str)(command[pc])+"    operand = "+str(opr[pc])+"")
+                jmp_flag = 0
                 #execute each instruction
-                (pc,pre,stack,top,rtop,tablecount,process_path)=executedcommand(stack,rstack,lstack,command,opr,back_com,back_opr,pc,pre,top,rtop,ltop,address,value,tablecount,variable_region,lock,process_number,process_path,count_pc,process_count,terminate_flag,flag_number,mlock,mlock2,program_counter,q,q2,q3,mode,mchange_flag,monitor_process_count,now_process_count,process_back_ori_num,step_flag)
-                if command[pre]==15:
+                (pc,pre,stack,top,rtop,tablecount,process_path)=\
+                    executedcommand(stack,rstack,lstack,command,opr,back_com,back_opr,\
+                        pc,pre,top,rtop,ltop,address,value,tablecount,variable_region,lock,\
+                            process_number,process_path,count_pc,process_count,terminate_flag,flag_number,\
+                                mlock,mlock2,program_counter,q,q2,q3,mode,mchange_flag,\
+                                    monitor_process_count,now_process_count,process_back_ori_num,step_flag,jmp_flag,monitor_turn,p_turn)
+                if command[pre]==15: # fork has been executed
                     with open("output.txt",'a') as f:
                         f.write("---fork end--- (process "+process_number+")\n")
                     print("---fork end--- (process "+process_number+")")
@@ -491,18 +629,41 @@ def execution(command,opr,back_com,back_opr,start,end,count_pc,stack,address,val
                 path_record=process_path
             #backward mode
             elif mode.value ==1:
-                if mchange_flag.value==0:
-                    mchange_flag.value=1
+                if my_rstart_flag==0: # The process invoked in forward Local initialization
+                    print("Process locally reversed")
+                    if my_rstart_flag == 0:
+                        my_rstart_flag=1
                     pc = count_pc-pre-1
                     end = count_pc-start-1
+                if my_revinit ==0: # all processes deal with jump_stack locally
+                    my_revinit =1
+                    # initialize jump stack for this process
+                    with open("jump_stack.txt",'r') as f:
+                        jstack0=f.read().split()
+                    f.close()
+                    jstack=[]
+                    for i in range(0,len(jstack0),2):
+                        if (process_number==jstack0[i+1]): #extract jump history
+                            jstack.append(int(jstack0[i]))
+                    jtop = len(jstack) # 
+        #            print("process:"+process_number+" jstack=",jstack)
+                if mchange_flag.value==0: # global initialization
+                    # initialize label stack for mode 1
                     with open("label_stack.txt",'r') as f:
                         lstack=f.read().split()
-                    ltop.value=len(lstack)-2
+                    f.close()
+                    ltop.value=len(lstack) # [yuen]
+                    # initialize value stack for mode 1
                     with open("value_stack.txt",'r') as f:
                         rstack=f.read().split()
-                    rtop.value=len(rstack)-2
+                    f.close()
+                    rtop.value=len(rstack) # [yuen]
+                    f.close()
+                    mchange_flag.value=1
                 #backward exec
-                if back_com[pc]==21:
+                if back_com[pc]==7:
+                    command1='   label'
+                elif back_com[pc]==21:
                     command1='    rjmp'
                 elif back_com[pc]==22:
                     command1='  restore'
@@ -518,34 +679,58 @@ def execution(command,opr,back_com,back_opr,start,end,count_pc,stack,address,val
                     command1=' r_merge'
                 elif back_com[pc]==28:
                     command1='     nop'
-                s=re.search(r'\d(\.\d+)*',lstack[ltop.value+1])
-                s2=re.search(r'\d(\.\d+)*',rstack[rtop.value+1])
+                s=re.search(r'\d(\.\d+)*',lstack[ltop.value-2+1]) # next process for lstack
+                s2=re.search(r'\d(\.\d+)*',rstack[rtop.value-3+1]) # next process for rstack
                 with open("endflag.txt",'r') as f:
                     my_endflag=f.read().split(',')
                 #check if the process number matches the process number on each value stack and label stack top in rjmp,restore.
-                if ((process_number==s2.group() and (back_com[pc]==22 or back_com[pc]==24)) or (process_number==s.group() and back_com[pc]==21) or (back_com[pc]!=21 and back_com[pc]!=22 and back_com[pc]!=24)) and my_terminate_flag==0:
-                    with open("process_record.txt",'a') as f:
-                        f.write(process_number+",")
-                    f.close()
+                # check process number for restore and r_alloc with rstack and for rjmp with lstack
+                if ((process_number==s2.group() and (back_com[pc]==22 or back_com[pc]==24))\
+                     or (process_number==s.group() and back_com[pc]==21)\
+                          or (back_com[pc]!=21 and back_com[pc]!=22 and back_com[pc]!=24))\
+                               and my_terminate_flag==0:
                     with open("reverse_output.txt",'a') as f:
-                        f.write("~~~~~~~~Process"+process_number+" execute~~~~~~~~\n")
+                        f.write("~~~~~~~~Process"+process_number+" backward execute~~~~~~(mode="+str(mode.value)+")~~\n")
                         f.write("path : "+process_path+"\n")
                         f.write("pc = "+str(pc+1)+"("+str(count_pc-pc)+")   command = "+command1+":"+(str)(back_com[pc])+"    operand = "+str(back_opr[pc])+"\n")
-                    print("~~~~~~~~Process"+process_number+" execute~~~~~~~~")
+                    print("~~~~~~~~Process"+process_number+" backward execute~~~~~~(mode="+str(mode.value)+")~~")
                     print("path : "+process_path)
-                    print("pc = "+str(pc+1)+"("+str(count_pc-pc)+")   command = "+command1+":"+(str)(back_com[pc])+"    operand = "+str(back_opr[pc])+"")
+                    print("pc = "+str(pc+1)+"("+str(count_pc-pc)+")   command = "+command1+":"+(str)(back_com[pc])+"    operand = "+str(back_opr[pc]))
+                    print("executing stack:       "+str(stack[0:])+"")
+                    print("[variable]")
+                    with open("variable_table.txt",'r') as f:
+                        table1=f.read().split()
+                    with open("table.txt",'r') as f:
+                        table2=f.read().split()
+                    variable_name=[]
+                    for i in range(0,len(table2),3):
+                        variable_name.append(table2[i])
+                    for i in range(0,tablecount.value,1):
+                        t1=re.search(r'\d+',table1[2*i])
+                        t2=re.search(r'([a-z]\d+\.)+',table1[2*i])
+                        print(t2.group()+'['+variable_name[int(t1.group())]+'] = '+str(value[i]))
+                    print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n")
                     if my_endflag[0]!='':
                         if my_endflag[flag_number]=='1' and back_com[pc]==23 and back_opr[pc]==1:
                             my_terminate_flag=1
-                    if back_com[pc]==26:
+                    if back_com[pc]==7: #label
+                        jtop = jtop - 1 # one jump reversed
+                    if back_com[pc]==26: # r_fork
                         with open('a'+(str)(back_opr[pc])+'.txt',mode='r') as f:
                             tables=f.read()
                         t3=tables[0:0+4]
                         s3=re.search(r'\d+',t3)
                         if end==count_pc-int(s3.group())+1:
+                            print("end_skip_flag set")
                             end_skip_flag=1
                     #execute each instructions
-                    (pc,pre,stack,top,rtop,tablecount,process_path)=executedcommand(stack,rstack,lstack,command,opr,back_com,back_opr,pc,pre,top,rtop,ltop,address,value,tablecount,variable_region,lock,process_number,process_path,count_pc,process_count,terminate_flag,flag_number,mlock,mlock2,program_counter,q,q2,q3,mode,mchange_flag,monitor_process_count,now_process_count,process_back_ori_num,step_flag)
+                    (pc,pre,stack,top,rtop,tablecount,process_path)=\
+                        executedcommand(stack,rstack,lstack,command,opr,back_com,back_opr,\
+                            pc,pre,top,rtop,ltop,address,value,tablecount,variable_region,\
+                                lock,process_number,process_path,count_pc,process_count,\
+                                    terminate_flag,flag_number,mlock,mlock2,program_counter,\
+                                    q,q2,q3,mode,mchange_flag,monitor_process_count,\
+                                        now_process_count,process_back_ori_num,step_flag,jmp_flag,monitor_turn,p_turn)
                     if back_com[pre]==26:
                         with open("reverse_output.txt",'a') as f:
                             f.write("---fork end--- (process "+process_number+")\n")
@@ -555,10 +740,10 @@ def execution(command,opr,back_com,back_opr,start,end,count_pc,stack,address,val
                     print("shared variable stack: "+str(value[0:tablecount.value])+"\n")
                     if back_com[pre]==27:
                         end_skip_flag=0
-            elif mode.value==2 and recovered_statement_flag==0:
+            elif mode.value==2 and recovered_statement_flag==0: # invert the abstract machine
                 i=0
                 while True:
-                    if process_back_ori_num[pre+i]==process_back_ori_num[pre]:
+                    if process_back_ori_num[pre+i]==process_back_ori_num[pre]: # slide pc till the next command
                         i=i+1
                     else:
                         break
@@ -566,17 +751,23 @@ def execution(command,opr,back_com,back_opr,start,end,count_pc,stack,address,val
                 if my_terminate_flag==1:
                     pc=pc-1
                 recovered_statement_flag=1
-                monitor_process_count.value=monitor_process_count.value+1
+                monitor_process_count.value=monitor_process_count.value+1 # confirm the process has been reversed
                 my_terminate_flag=0
-            elif mode.value==3 or mode.value==4:
-                if True:
-                    next_process='-1'
-                    if mode.value==3:
-                        with open("process_record.txt",'r') as f:
-                            process_record=f.read().split(',')
-                        next_process=process_record[len(process_record)-step_flag.value-2]
-                        print("next_process:"+next_process)
-                        print("process_number:"+process_number)
+                my_revinit=1 # initialize locally
+                my_rstart_flag=0 # set once for forward execution
+        #        print("process_number="+process_number+" jstack="+str(jstack)+" jtop="+str(jtop))
+            elif mode.value==3: # or mode.value==4:
+                if my_revinit==0: # initialization for jstack
+                    my_revinit=1
+                    with open("jump_stack.txt",'r') as f:
+                        jstack0=f.read().split()
+                    f.close()
+                    for i in range(0,len(jstack0),2):
+                        if (process_number==jstack0[i+1]):
+                            jstack.append(int(jstack0[i]))
+                    jtop = 0 # 
+                #print("process:"+process_number+" jtop=",jtop," jstack=",jstack)
+                '''
                     if mode.value==4:
                         q.put(process_path)
                         q2.put(process_number)
@@ -584,56 +775,83 @@ def execution(command,opr,back_com,back_opr,start,end,count_pc,stack,address,val
                         program_counter.value=pc
                         with open("exp_error_process.txt",'r') as f:
                             t1=f.read()
+                        f.close()
                     if (next_process==process_number and mode.value==3) or (mode.value==4 and t1!=process_number):
-                        if command[pc]==1:
-                            command1='   ipush'
-                        elif command[pc]==2:
-                            command1='    load'
-                        elif command[pc]==3:
-                            command1='   store'
-                        elif command[pc]==4:
-                            command1='     jpc'
-                        elif command[pc]==5:
-                            command1='     jmp'
-                        elif command[pc]==6:
-                            command1='      op'
-                        elif command[pc]==7:
-                            command1='   label'
-                        elif command[pc]==8:
-                            command1='     par'
-                        elif command[pc]==9:
-                            command1='   alloc'
-                        elif command[pc]==10:
-                            command1='    free'
-                        elif command[pc]==11:
-                            command1='    proc'
-                        elif command[pc]==12:
-                            command1='p_return'
-                        elif command[pc]==13:
-                            command1='   block'
-                        elif command[pc]==14:
-                            command1='     end'
-                        elif command[pc]==15:
-                            command1='    fork'
-                        elif command[pc]==16:
-                            command1='   merge'
-                        elif command[pc]==17:
-                            command1='    func'
-                        elif command[pc]==18:
-                            command1='f_return'
-                        elif command[pc]==19:
-                            command1='     nop'
+                        print("exec com")
+                '''
+                #    if t1!=process_number: #  t1 is suspended
+                if command[pc]==1:
+                    command1='   ipush'
+                elif command[pc]==2:
+                    command1='    load'
+                elif command[pc]==3:
+                    command1='   store'
+                elif command[pc]==4:
+                    command1='     jpc'
+                elif command[pc]==5:
+                    command1='     jmp'
+                elif command[pc]==6:
+                    command1='      op'
+                elif command[pc]==7:
+                    command1='   label'
+                elif command[pc]==8:
+                    command1='     par'
+                elif command[pc]==9:
+                    command1='   alloc'
+                elif command[pc]==10:
+                    command1='    free'
+                elif command[pc]==11:
+                    command1='    proc'
+                elif command[pc]==12:
+                    command1='p_return'
+                elif command[pc]==13:
+                    command1='   block'
+                elif command[pc]==14:
+                    command1='     end'
+                elif command[pc]==15:
+                    command1='    fork'
+                elif command[pc]==16:
+                    command1='   merge'
+                elif command[pc]==17:
+                    command1='    func'
+                elif command[pc]==18:
+                    command1='f_return'
+                elif command[pc]==19:
+                    command1='     nop'
+                if ltop.value < len(lstack): # no more branch
+                    s=re.search(r'\d(\.\d+)*',lstack[ltop.value+1]) # next process for lstack
+                else:
+                    s=re.search(r'-1','-1')
+                if rtop.value < len(rstack): # no more store
+                    s2=re.search(r'\d(\.\d+)*',rstack[rtop.value+1]) # next process for rstack
+                else:
+                    s2=re.search(r'-1','-1')
+                if mode.value == 3:
+                    #print("process number="+process_number+" next process="+str(s2.group())+" pc="+str(pc)+":"+command1+" rtop="+str(rtop.value)+" rstack",rstack)
+                    #print("ltop=",ltop.value," lstack=",lstack)
+                    if (process_number==s2.group() and command[pc]==3)\
+                        or (process_number==s.group() and (command[pc]==4 or command[pc]==5))\
+                            or (command[pc]!=3 and command[pc]!=4 and command[pc]!=5)\
+                                and my_terminate_flag==0:
                         with open("output.txt",'a') as f:
-                            f.write("~~~~~~~~Process"+process_number+" execute~~~~~~~~\n")
+                            f.write("~~~~~~~~Process"+process_number+" forward execute~~~~~~(mode="+str(mode.value)+")~~\n")
                             f.write("path : "+process_path+"\n")
                             f.write("pc = "+str(pc+1)+"   command = "+command1+":"+(str)(command[pc])+"    operand = "+str(opr[pc])+"\n")
-                        print("~~~~~~~~Process"+process_number+" execute~~~~~~~~")
+                        print("~~~~~~~~Process"+process_number+" forward execute~~~~~~(mode="+str(mode.value)+")~~")
                         print("path : "+process_path)
                         print("pc = "+str(pc+1)+" [line:"+str(process_back_ori_num[count_pc-pc-1])+"]   command = "+command1+":"+(str)(command[pc])+"    operand = "+str(opr[pc])+"")
-                        if mode.value==3:
-                            step_flag.value=step_flag.value+1
+                        step_flag.value=step_flag.value+1
+                        jmp_flag = 0
+                        if command[pc]==4 or command[pc]==5 or command[pc]==12:
+                            print(jtop,jstack)
+                            jmp_flag = jstack[jtop]
+                            jtop = jtop + 1
                         #execute each instructions
-                        (pc,pre,stack,top,rtop,tablecount,process_path)=executedcommand(stack,rstack,lstack,command,opr,back_com,back_opr,pc,pre,top,rtop,ltop,address,value,tablecount,variable_region,lock,process_number,process_path,count_pc,process_count,terminate_flag,flag_number,mlock,mlock2,program_counter,q,q2,q3,mode,mchange_flag,monitor_process_count,now_process_count,process_back_ori_num,step_flag)
+                        (pc,pre,stack,top,rtop,tablecount,process_path)=executedcommand(stack,rstack,lstack,command,opr,back_com,back_opr,\
+                            pc,pre,top,rtop,ltop,address,value,tablecount,variable_region,lock,\
+                                process_number,process_path,count_pc,process_count,terminate_flag,flag_number,\
+                                    mlock,mlock2,program_counter,q,q2,q3,mode,mchange_flag,\
+                                        monitor_process_count,now_process_count,process_back_ori_num,step_flag,jmp_flag,monitor_turn,p_turn)
                         if command[pre]==15:
                             with open("output.txt",'a') as f:
                                 f.write("---fork end--- (process "+process_number+")\n")
@@ -658,21 +876,22 @@ def execution(command,opr,back_com,back_opr,start,end,count_pc,stack,address,val
                         print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n")
                         if command[pre]==8 and opr[pre]==1 and pc!=end:
                             end=count_pc-start
-                        if rough_mode_change==1:
-                            pc=pc-1
-                            rough_mode_change=0
-                            print("rough_mode")
-                            start=start-1
                         path_record=process_path
-                    recovered_statement_flag=0
-            if (command[pre]!=15 and (mode.value==0 or mode.value==3 or mode.value==4)) or (back_com[pre]!=26 and mode.value==1) or mode.value==2: #and mode.value!=3 and mode.value!=4:
-                mlock.release()     
+                        recovered_statement_flag=0 # ????
+            if (command[pre]!=15 and (mode.value==0 or mode.value==3 or mode.value==4)) \
+                or (back_com[pre]!=26 and mode.value==1) or mode.value==2: #and mode.value!=3 and mode.value!=4:
+                mlock.release()
+#                print("mlock.released in execution")
+            p_turn.value = 0
+            pre_mode = mode.value
             lock.release()
+#            print("lock released pc=",pc," process_number=",process_number,\
+#                " command[pre]=",command[pre]," back_com[pre]=",back_com[pre])
         #set terminate_flag to 1 when the process terminate.
         now_process_count.value=now_process_count.value-1
-        terminate_flag[flag_number]=1
-        print("terminate execute "+str(flag_number))
-    #backward
+        terminate_flag[flag_number]=1 # mark the process is done
+#        print("terminate execute "+str(flag_number))
+    #backward not in use at the moment
     if args[2]=='db' or args[2]=='b':
         while pc!=end or command[pre]==26:
             lock.acquire()
@@ -701,8 +920,10 @@ def execution(command,opr,back_com,back_opr,start,end,count_pc,stack,address,val
                     f.write("pc = "+str(pc+1)+"("+str(count_pc-pc)+")   command = "+command1+":"+(str)(command[pc])+"    operand = "+str(opr[pc])+"\n")
                 print("~~~~~~~~Process"+process_number+" execute~~~~~~~~")
                 #print("path : "+process_path)
-                print("pc = "+str(pc+1)+"("+str(count_pc-pc)+")   command = "+command1+":"+(str)(command[pc])+"    operand = "+str(opr[pc])+"")
-                (pc,pre,stack,top,rtop,tablecount,process_path)=executedcommand(stack,rstack,lstack,command,opr,pc,pre,top,rtop,ltop,address,value,tablecount,variable_region,lock,process_number,process_path,count_pc,process_count,terminate_flag,flag_number)
+#                print("pc = "+str(pc+1)+"("+str(count_pc-pc)+")   command = "+command1+":"+(str)(command[pc])+"    operand = "+str(opr[pc])+"")
+                (pc,pre,stack,top,rtop,tablecount,process_path)=executedcommand(stack,rstack,lstack,command,opr,pc,pre,\
+                    top,rtop,ltop,address,value,tablecount,variable_region,lock,process_number,process_path,\
+                        count_pc,process_count,terminate_flag,flag_number,jmp_flag,monitor_turn,p_turn)
                 if command[pre]==26:
                     with open("reverse_output.txt",'a') as f:
                         f.write("---fork end--- (process "+process_number+")\n")
@@ -736,19 +957,20 @@ def coderead():
         opr.append((int)(s2.group()))
         ori_num.append((int)(s3.group()))
         count_pc=count_pc+1
-    f2=open("inv_code.txt",mode='r')
-    codes2=f2.read()
-    f2.close()
-    for l2 in codes2[:-1].split("\n"):
-        t1=l2[0:2]
-        s1=re.search(r'\d+',t1)
-        t2=l2[2:8]
-        s2=re.search(r'\d+',t2)
-        t3=l2[8:14]
-        s3=re.search(r'\d+',t3)
-        back_com.append((int)(s1.group()))
-        back_opr.append((int)(s2.group()))
-        back_ori_num.append((int)(s3.group()))
+    if args[2]=='df' or args[2]=='f':
+        f2=open("inv_code.txt",mode='r')
+        codes2=f2.read()
+        f2.close()
+        for l2 in codes2[:-1].split("\n"):
+            t1=l2[0:2]
+            s1=re.search(r'\d+',t1)
+            t2=l2[2:8]
+            s2=re.search(r'\d+',t2)
+            t3=l2[8:14]
+            s3=re.search(r'\d+',t3)
+            back_com.append((int)(s1.group()))
+            back_opr.append((int)(s2.group()))
+            back_ori_num.append((int)(s3.group()))
 
 #clear each list
 def coderead_list_clear():
@@ -768,10 +990,10 @@ def forward(com,opr,count_pc):
             f2.write("21     0 ("+str(ori_num[count_pc-i-1]).rjust(4)+")\n")
         elif com[count_pc-i-1]==3:#store to restore
             f2.write("22 "+str(opr[count_pc-i-1]).rjust(5)+" ("+str(ori_num[count_pc-i-1]).rjust(4)+")\n")
-        elif com[count_pc-i-1]==4:#jpc to nop
-            f2.write("28     0 ("+str(ori_num[count_pc-i-1]).rjust(4)+")\n")
+        elif com[count_pc-i-1]==4:#jpc to nop (changed [yuen] to label)
+            f2.write("7     0 ("+str(ori_num[count_pc-i-1]).rjust(4)+")\n")
         elif com[count_pc-i-1]==5:
-            f2.write("28     0 ("+str(ori_num[count_pc-i-1]).rjust(4)+")\n")#jmp to nop
+            f2.write("7     0 ("+str(ori_num[count_pc-i-1]).rjust(4)+")\n")#jmp to nop (chnged [yuen] to label)
         elif com[count_pc-i-1]==8:#par to par
             if opr[count_pc-i-1]==0:
                 f2.write("23 "+str(1).rjust(5)+" ("+str(ori_num[count_pc-i-1]).rjust(4)+")\n")
@@ -784,9 +1006,9 @@ def forward(com,opr,count_pc):
         elif com[count_pc-i-1]==11:#proc to rjmp
             pname="p"+str(opr[count_pc-i-1])
             f2.write("21 "+pname.rjust(5)+" ("+str(ori_num[count_pc-i-1]).rjust(4)+")\n")
-        elif com[count_pc-i-1]==12:#p_return to nop
+        elif com[count_pc-i-1]==12:#p_return to nop [yuen]
             pname="p"+str(opr[count_pc-i-1])
-            f2.write("28 "+pname.rjust(5)+" ("+str(ori_num[count_pc-i-1]).rjust(4)+")\n")
+            f2.write("7  "+pname.rjust(5)+" ("+str(ori_num[count_pc-i-1]).rjust(4)+")\n")
         elif com[count_pc-i-1]==13:#block to nop
             if com[count_pc-i]==5 and com[count_pc-i+1]==7 and com[count_pc-i+2]==16:
                 bname="c"+str(opr[count_pc-i-1])
@@ -898,14 +1120,14 @@ def all_contract_list_clear(exp_name,exp_PC,ens_name,ens_PC,exp_com,exp_opr,ens_
 
 #monitor executes contract's bytecodes
 def monitor_exec_command(stack,top,com,opr,process_path,living_flag):
-    if com==1:#push　
+    if com==1:#push 
         top=push(opr,stack,top)
         return (stack,top)
-    elif com==2:#load　
+    elif com==2:#load 
         c=value[search_table(opr,process_path)]
         top=push(c,stack,top)
         return (stack,top)
-    elif com==6:#op　
+    elif com==6:#op 
         if (opr)==0:#'+'
             (c,top)=pop1(stack,top)
             (d,top)=pop1(stack,top)
@@ -941,7 +1163,7 @@ def monitor_exec_command(stack,top,com,opr,process_path,living_flag):
         return (stack,top)
     elif com==30:#terminated
         if living_flag==1:
-            top=push(1,stack,top)
+            top=push(1,stack,top) 
         elif living_flag==0:
             top=push(0,stack,top)
         return (stack,top)
@@ -985,16 +1207,17 @@ if __name__ == '__main__':
     rtop = Value('i',0)
     ltop = Value('i',0)
     program_counter = Value('i',0)
-    endflag= Array('i',100) #{}
+    endflag= manager.Array('i',range(100)) #{}
     for i in range(0,100,1):
         endflag[i]=0
     endflag0=Value('i',0)
     notlabelflag=0
-    lock=Lock()
+    lock=Semaphore(1) #Lock()
     variable_region = []
     process_number='0'
     process_path='E'
     process_count = Value('i',0)
+    process_table = []  # table for i-th process and name (not used yet)
     q = manager.Queue()
     q2 = manager.Queue()
     q3 = manager.Queue()
@@ -1002,17 +1225,17 @@ if __name__ == '__main__':
     mchange_flag = Value('i',0)
     for i in range(0,100,1):
         terminate_flag[i]=0
-    exp_name = []
-    exp_PC = []
-    ens_name = []
-    ens_PC = []
-    exp_com = [[]*1 for i in range(10)]
-    ens_com = [[]*1 for i in range(10)]
-    exp_opr = [[]*1 for i in range(10)]
-    ens_opr = [[]*1 for i in range(10)]
-    exp_xpath = [[]]
-    ens_xpath = [[]]
-    xpath_table = []
+    exp_name = [] # expect decl number n out of dn
+    exp_PC = [] # PC of the expects
+    ens_name = [] # ensures decl number n out of dn
+    ens_PC = [] # PC of the ensures
+    exp_com = [[]*1 for i in range(10)] # expects command list
+    ens_com = [[]*1 for i in range(10)] # ensures command list
+    exp_opr = [[]*1 for i in range(10)] # expects operand list
+    ens_opr = [[]*1 for i in range(10)] # ensures operand list
+    exp_xpath = [[]] # location path for expects
+    ens_xpath = [[]] # location path for ensures
+    xpath_table = [] 
     xpath_process_number = []
     xpath_flag_number = []
     my_flag_number = 0
@@ -1029,6 +1252,7 @@ if __name__ == '__main__':
     mlock2 = Lock()
     monitor_stack = []
     monitor_process_count = Value('i',0)
+    monitor_turn = Value('i',1)
     now_process_count = Value('i',0)
     parent_count = Value('i',0)
     step_flag = Value('i',0)
@@ -1039,7 +1263,8 @@ if __name__ == '__main__':
     temp_path='0'
     temp_path2='0'
     check_skip=0
-    lockfree  = Lock()
+    p_turn= Value('i',0)
+
     a='1'
     path='table.txt'
     f=open(path,mode='r')
@@ -1059,9 +1284,6 @@ if __name__ == '__main__':
         with open("output.txt",'w') as f:
             f.write("")
         f.close()
-        with open("process_record.txt",'w') as f:
-            f.write("")
-        f.close()
         with open("reverse_output.txt",'w') as f:
             f.write("")
         f.close()
@@ -1071,8 +1293,9 @@ if __name__ == '__main__':
         with open("endflag.txt",'w') as f:
             f.write("")
         f.close()
-        with open("record_contract_table.txt",'w') as f:
+        with open("jump_stack.txt",'w') as f:
             f.write("")
+        f.close()
     elif args[2]=='b' or args[2]=='db':
         with open("variable_table.txt",'w') as f:
             f.write("")
@@ -1082,7 +1305,7 @@ if __name__ == '__main__':
         ltop.value=len(label_stack)-2
         with open("value_stack.txt",'r') as f:
             value_stack=f.read().split()
-        rtop.value=len(value_stack)-2
+        rtop.value=len(value_stack)-3 # [yuen]
         with open("reverse_output.txt",'w') as f:
             f.write("")
         f.close()
@@ -1091,16 +1314,21 @@ if __name__ == '__main__':
     coderead()
     for i in range(0,len(back_ori_num),1):
         process_back_ori_num[i]=back_ori_num[i]
-    (exp_name,exp_PC,ens_name,ens_PC,exp_com,exp_opr,ens_com,ens_opr,exp_xpath,ens_xpath)=read_contract_table(exp_name,exp_PC,ens_name,ens_PC,exp_com,exp_opr,ens_com,ens_opr,exp_xpath,ens_xpath)
+    (exp_name,exp_PC,ens_name,ens_PC,exp_com,exp_opr,ens_com,ens_opr,exp_xpath,ens_xpath)\
+        =read_contract_table(exp_name,exp_PC,ens_name,ens_PC,exp_com,exp_opr,ens_com,ens_opr,exp_xpath,ens_xpath)
     #forward execution
-    if args[2]=='df':
-        exec_mode=input("[select mode] 1:detail mode, 2:rough mode")
-        process = Process(target=execution,args=(com,opr,back_com,back_opr,0,count_pc,count_pc,stack,address,value,tablecount,rstack,lstack,rtop,ltop,endflag0,variable_region,lock,process_number,process_path,process_count,terminate_flag,0,mlock,mlock2,program_counter,q,q2,q3,mode,mchange_flag,monitor_process_count,now_process_count,process_back_ori_num,step_flag))
+    if args[2]=='df' or args[2]=='f':
+#       input("debugging start")
+        process = Process(target=execution,args=(com,opr,back_com,back_opr,0,count_pc,count_pc,\
+            stack,address,value,tablecount,rstack,lstack,rtop,ltop,endflag0,variable_region,\
+                lock,process_number,process_path,process_count,terminate_flag,0,\
+                    mlock,mlock2,program_counter,q,q2,q3,mode,mchange_flag,monitor_process_count,
+                    now_process_count,process_back_ori_num,step_flag,monitor_turn,p_turn,0))
+        process_count.value=1
         process.start()
-        if exec_mode=='1':
-            while program_counter.value+1!=count_pc:
+        while program_counter.value+1!=count_pc:
                 mlock.acquire()
-                if mode.value==0:
+                if mode.value==0: # forward
                     check_flag=0
                     if not q.empty():
                         path_queue=q.get(block=False)
@@ -1136,9 +1364,13 @@ if __name__ == '__main__':
                             i=i+1
                         if monitor_stack[-1]==0:
                             print("[error] expects ")
-                            str2=input("1:end monitor, enter:continue")
-                            if str2=='1':
-                                break
+                        #    str2=input("1:end monitor, enter:continue")
+                        #    if str2=='1':
+                        #        break
+                            suspProc.append(path_queue2)
+                            with open("exp_error_process.txt",'a') as f:
+                                f.write(path_queue2+"\n")
+                            f.close()
                 #ensures control
                     check_flag=0
                     i=0
@@ -1155,7 +1387,7 @@ if __name__ == '__main__':
                             (monitor_stack,monitor_top)=monitor_exec_command(monitor_stack,monitor_top,ens_com[con_number][i],ens_opr[con_number][i],xpath_process_path,terminate_flag[my_flag_number])
                             i=i+1
                         if monitor_stack[-1]==0:
-                            print("[error] ensures d"+str(ens_name[con_number])+" line:"+str(ori_num[ens_PC[con_number]]-1))
+                            print("[ENSURES violated] ensures d"+str(ens_name[con_number])+" line:"+str(ori_num[ens_PC[con_number]]-1))
                             mode.value=1
                             back_ens_com=ens_com[con_number]
                             back_ens_opr=ens_opr[con_number]
@@ -1163,11 +1395,13 @@ if __name__ == '__main__':
                             back_my_flag_number=my_flag_number
                             ens_back_pc=program_counter.value
                             ens_error_check=0
-                    #    sys.exit()
-                            str2=input("enter: backward mode")
+                            str2=("Enter: change to backward mode, 1:quit")
                             if str2=='1':
                                 break
-                if mode.value==1:
+                            monitor_process_count.value = 0
+                            mchange_flag.value = 0
+                # Mode 1
+                elif mode.value==1: # backward
                     check_flag=0
                     i=0
                     con_number=0
@@ -1184,45 +1418,47 @@ if __name__ == '__main__':
                         if ((count_pc-check_PC)==program_counter.value and mode4_flag==0):
                             check_flag=1
                             con_number=i
-                            print("program_counter check")
                         i=i+1
                     if mode4_flag==1 and (count_pc-exp_err_pc)==program_counter.value:
                         mode4_flag=2
                     if mode4_flag==2 and (count_pc-record_pc+1)==program_counter.value:
                         check_flag=1
                         mode4_flag=0
-                        print("record_pc "+str(record_pc))
-                        print(program_counter.value)
                     if check_flag==1:
                         mode.value=2
-                if mode.value==2:#change backward mode to forward step mode 
-                    if now_process_count.value==monitor_process_count.value:
-                        print("all process got back")
-                        print("error line:"+str(back_ori_num[error_pc]))
-                        str4=input("1:step mode 2:auto mode 3:compile a program with new contract")
-                        if str4=='3':
+                elif mode.value==2:#change backward mode to forward step mode 
+                    if now_process_count.value==monitor_process_count.value: # now_process_count = how many processes alive
+                        # monitor_process_count = how many process has been inverted
+                        # print("all process got back")
+                        print("[Expects] line:"+str(back_ori_num[error_pc]))
+                        print("1:step mode\n2:Follow Previous trace\n3:Auto Forward\n4:New contract")
+                        str4=input()
+                    #    str4=input("1:step mode 2:restrictive auto mode 3:non-restrictive auto mode 4:compile a program with new contract")
+                        if str4=='4':
                             str5=input("input file name : ")
                             os.system('java Parser '+str5)
-                            str4=input("1:step mode 2:auto mode ")
+                            print("1:step mode\n2:Follow Previous trace\n3:Auto Forward")
+                            str4=input()
                         if str4=='1':
                             mode.value=3
                         elif str4=='2':
+                            mode.value=3
+                        elif str4=='3':
                             mode.value=4
                         for i in range(0,100,1):
                             endflag[i]=0
                         step_count=0
                         one_time_error_flag=0
-                        print(exp_xpath)
-                        coderead_list_clear()
-                        coderead()
+#                        print(exp_xpath)
+                    #    coderead_list_clear()
+                    #    coderead()
                         for i in range(0,len(back_ori_num),1):
                             process_back_ori_num[i]=back_ori_num[i]
                         (exp_name,exp_PC,ens_name,ens_PC,exp_com,exp_opr,ens_com,ens_opr,exp_xpath,ens_xpath)=all_contract_list_clear(exp_name,exp_PC,ens_name,ens_PC,exp_com,exp_opr,ens_com,ens_opr,exp_xpath,ens_xpath)
                         (exp_name,exp_PC,ens_name,ens_PC,exp_com,exp_opr,ens_com,ens_opr,exp_xpath,ens_xpath)=read_contract_table(exp_name,exp_PC,ens_name,ens_PC,exp_com,exp_opr,ens_com,ens_opr,exp_xpath,ens_xpath)
-                        print(exp_xpath)
-                        str3=input()
-                    #mlock2.release()
-                if mode.value==3:#step forward mode
+                    #    print(exp_xpath)
+                    #    str3=input()
+                elif mode.value==3:#step forward mode
                     if True:#step_flag.value==2:
                         if not q.empty():
                             path_queue=q.get(block=False)
@@ -1245,7 +1481,7 @@ if __name__ == '__main__':
                         con_number=0
                         i=0
                         for check_PC in exp_PC:
-                            if check_PC==program_counter.value:
+                            if check_PC==program_counter.value: #[yuen]
                                 check_flag=1
                                 con_number=i
                             i=i+1
@@ -1257,15 +1493,17 @@ if __name__ == '__main__':
                             for l in exp_com[con_number]:
                                 (monitor_stack,monitor_top)=monitor_exec_command(monitor_stack,monitor_top,exp_com[con_number][i],exp_opr[con_number][i],xpath_process_path,terminate_flag[my_flag_number])
                                 i=i+1
-                            str2=input("1:end monitor, enter:continue")
+                            print("1:end monitor\nEnter:continue")
+                            str2=input()
                             if str2=='1':
                                 break
                         #ensures control
                         con_number=0
                         check_flag=0
                         i=0
+                        # print("ens_PC",ens_PC," pc=",program_counter.value+1)
                         for check_PC in ens_PC:
-                            if check_PC==program_counter.value:
+                            if check_PC==program_counter.value: # [yuen]
                                 check_flag=1
                                 con_number=i
                             i=i+1
@@ -1279,7 +1517,7 @@ if __name__ == '__main__':
                                 i=i+1
                                 #print(monitor_stack)
                             if monitor_stack[-1]==0:
-                                print("[error] ensures d"+str(ens_name[con_number])+" line:"+str(ori_num[ens_PC[con_number]]-1))
+                                print("[ENSURES violated] ensures d"+str(ens_name[con_number])+" line:"+str(ori_num[ens_PC[con_number]]-1))
                                 mode.value=1
                                 mchange_flag.value=0
                                 back_ens_com=ens_com[con_number]
@@ -1288,24 +1526,53 @@ if __name__ == '__main__':
                                 back_my_flag_number=my_flag_number
                                 ens_back_pc=program_counter.value
                                 ens_error_check=0
-                                with open("process_record.txt",'w') as f:
-                                    f.write("")
-                                f.close()
                                 step_flag.value=0
                                 monitor_process_count.value=0
-                        #    sys.exit()
-                            str2=input("1:backward 2:break")
-                            if str2=='2':
-                                break
-                            elif str2=='1':
-                                mode.value=1
-                                mchange_flag.value=0
-                                with open("process_record.txt",'w') as f:
-                                    f.write("")
-                                f.close()
-                                step_flag.value=0
-                                monitor_process_count.value=0
-                        str5=input("enter: next step")
+#                                print("rtop=",rtop.value," ltop=",ltop.value)
+                                print("1:backward\n2:break")
+                                str2=input()
+                                if str2=='2':
+                                    break
+                                elif str2=='1': # backward again
+                                    mode.value=1
+                                    mchange_flag.value=0
+                                    # recreate value_stack and label_stack upto rtop and ltop
+                                    with open("value_stack.txt","r") as f:
+                                        values = f.read().split()
+                                    f.close()
+                                    with open("value_stack.txt","w") as f:
+                                        f.write("")
+                                    f.close()
+                                    with open("value_stack.txt","a") as f:
+                                        for i in range(0,rtop.value,3):
+                                            f.write(values[i]+" "+values[i+1]+" "+values[i+2]+'\n')
+                                    f.close()
+                                    with open("label_stack.txt","r") as f:
+                                        labels = f.read().split()
+                                    f.close()
+                                    with open("label_stack.txt","w") as f:
+                                        f.write("")
+                                    f.close()
+                                    with open("label_stack.txt","a") as f:
+                                        for i in range(0,ltop.value,2):
+                                            f.write(labels[i]+" "+labels[i+1]+'\n')
+                                    f.close()
+                                    with open("jump_stack.txt","r") as f:
+                                        jumps = f.read().split()
+                                    f.close()
+                                    with open("jump_stack.txt","w") as f:
+                                        f.write("")
+                                    f.close()
+                                    with open("jump_stack.txt","a") as f:
+                                        for i in range(0,ltop.value,2):
+                                            f.write(jumps[i]+" "+jumps[i+1]+'\n')
+                                    f.close()
+                                    step_flag.value=0 # reverse each processes
+                                #    print("now_process_count=",now_process_count.value)
+                                    monitor_process_count.value=0 # check if all processes are reversed
+                            #
+                        if str4=='1': # step mode in mode 3
+                            str5=input("Enter: next step")
                         step_count=step_count+1
                 elif mode.value==4:
                     if True:#step_flag.value==2:
@@ -1330,7 +1597,7 @@ if __name__ == '__main__':
                         con_number=0
                         i=0
                         for check_PC in exp_PC:
-                            if check_PC==program_counter.value:
+                            if check_PC==program_counter.value: # [yuen]
                                 check_flag=1
                                 con_number=i
                             i=i+1
@@ -1339,7 +1606,7 @@ if __name__ == '__main__':
                             monitor_top=0
                             i=0
                             for l in exp_com[con_number]:
-                                (monitor_stack,monitor_top)=monitor_exec_command(monitor_stack,monitor_top,exp_com[con_number][i],exp_opr[con_number][i],xpath_process_path,terminate_flag[my_flag_number])
+                                (monitor_stack,monitor_top)=monitor_exec_command(monitor_stack,monitor_top,exp_com[con_number][i],exp_opr[con_number][i],xpath_rocess_path,terminate_flag[my_flag_number])
                                 i=i+1
                             if monitor_stack[-1]==0:
                                 exp_error_flag=1
@@ -1347,7 +1614,8 @@ if __name__ == '__main__':
                             if one_time_error_flag==0:
                                 print("[error] expects d"+str(exp_name[con_number])+" line:"+str(ori_num[exp_PC[con_number]]-1))
                                 with open("exp_error_process.txt",'w') as f:
-                                    f.write(path_queue2)
+                                    f.write('{1}:{2}\n'.format(con_number,path_queue2))
+                                #    f.write(path_queue2)
                                 one_time_error_flag=1
                                 error_exp_com=exp_com[con_number]
                                 error_exp_opr=exp_opr[con_number]
@@ -1380,7 +1648,7 @@ if __name__ == '__main__':
                         check_flag=0
                         i=0
                         for check_PC in ens_PC:
-                            if check_PC==program_counter.value:
+                            if check_PC==program_counter.value: # [yuen]
                                 check_flag=1
                                 con_number=i
                             i=i+1
@@ -1402,9 +1670,6 @@ if __name__ == '__main__':
                                 back_my_flag_number=my_flag_number
                                 ens_back_pc=program_counter.value
                                 ens_error_check=0
-                                with open("process_record.txt",'w') as f:
-                                    f.write("")
-                                f.close()
                                 step_flag.value=0
                                 monitor_process_count.value=0
                         #    sys.exit()
@@ -1418,192 +1683,15 @@ if __name__ == '__main__':
                             elif str2=='1':
                                 mode.value=1
                                 mchange_flag.value=0
-                                with open("process_record.txt",'w') as f:
-                                    f.write("")
-                                f.close()
                                 step_flag.value=0
                                 monitor_process_count.value=0
                         step_count=step_count+1
+                # mode selection end    
+                monitor_turn.value = 0
+                p_turn.value = 1
                 mlock.release()
-        elif exec_mode=='2':
-            rough_mode_change=0
-            mode.value=4
-            while (program_counter.value+1!=count_pc and mode.value==4) or rough_mode_change==1:
-                mlock.acquire()
-                if mode.value==4:
-                    check_flag=0
-                    if not q.empty():
-                        path_queue=q.get(block=False)
-                    if not q2.empty():
-                        path_queue2=q2.get(block=False)
-                    if not q3.empty():
-                        path_queue3=q3.get(block=False)
-                        path_update_flag=1
-                    search_process_number=path_queue2
-                    new_number=0
-                    for i in range(0,len(xpath_process_number),1):
-                        if xpath_process_number[i]!=path_queue2:
-                            new_number=new_number+1
-                        elif xpath_process_number[i]==path_queue2:
-                            xpath_table[i]=path_queue
-                            xpath_flag_number[i]=path_queue3
-                    if new_number==len(xpath_process_number):
-                        xpath_process_number.append(path_queue2)
-                        xpath_table.append(path_queue)
-                        xpath_flag_number.append(path_queue3)
-                    con_number=0
-                    i=0
-                    if check_skip==1:
-                        for check_PC in exp_PC:
-                            if check_PC==rec_check_pc:
-                                check_flag=1
-                                con_number=i
-                                search_process_number=rec_process_number
-                                check_skip=2
-                        i=i+1
-                    con_number=0
-                    i=0
-                    for check_PC in exp_PC:
-                        if check_PC==program_counter.value:
-                            if com[program_counter.value-1]==8 and opr[program_counter.value-1]==0 and check_skip==0:
-                                check_skip=1
-                                rec_check_pc=program_counter.value
-                                rec_process_number=path_queue2
-                                input("check through")
-                                with open("exp_error_process.txt",'w') as f:
-                                    f.write(path_queue2)
-                            else:
-                                check_flag=1
-                                con_number=i
-                        i=i+1
-                    if check_flag==1:
-                        (xpath_process_path,my_flag_number)=search_xpath(exp_xpath[con_number],xpath_table,xpath_process_number,search_process_number,xpath_flag_number)
-                        monitor_top=0
-                        i=0
-                        for l in exp_com[con_number]:
-                            (monitor_stack,monitor_top)=monitor_exec_command(monitor_stack,monitor_top,exp_com[con_number][i],exp_opr[con_number][i],xpath_process_path,terminate_flag[my_flag_number])
-                            i=i+1
-                        if monitor_stack[-1]==0:
-                            exp_error_flag=1
-                    if exp_error_flag==1:
-                        if one_time_error_flag==0:
-                            print("[error] expects d"+str(exp_name[con_number])+" line:"+str(ori_num[exp_PC[con_number]]-1))
-                            input("enter:next step")
-                            if temp_path=='0':
-                                with open("exp_error_process.txt",'w') as f:
-                                    f.write(search_process_number)
-                            elif temp_path!='0':
-                                with open("exp_error_process.txt",'w') as f:
-                                    f.write(temp_path)
-                            one_time_error_flag=1
-                            error_exp_com=exp_com[con_number]
-                            error_exp_opr=exp_opr[con_number]
-                            error_xpath_process_path=xpath_process_path
-                            error_my_flag_number=my_flag_number
-                            mode4_flag=1
-                            exp_err_pc=program_counter.value
-                            endflag[my_flag_number]=1
-                            with open("endflag.txt",'w') as f:
-                                for i in range(0,100,1):
-                                    f.write(str(endflag[i])+",")
-                        if one_time_error_flag==1 and exp_err_pc!=program_counter.value:
-                            record_pc=program_counter.value+1
-                            one_time_error_flag=2
-                            endflag[path_queue3]=1
-                            with open("endflag.txt",'w') as f:
-                                for i in range(0,100,1):
-                                    f.write(str(endflag[i])+",")
-                        i=0
-                        for l in error_exp_com:
-                            (monitor_stack,monitor_top)=monitor_exec_command(monitor_stack,monitor_top,error_exp_com[i],error_exp_opr[i],error_xpath_process_path,terminate_flag[error_my_flag_number])
-                            i=i+1
-                        if monitor_stack[-1]==1:
-                        #release error process
-                            with open("exp_error_process.txt",'w') as f:
-                                f.write('-1')
-                            exp_error_flag=0
-                    if temp_path!=path_queue2:
-                        temp_path=path_queue2
-                    if check_skip==2:
-                        i=0
-                        check_terminate_flag=0
-                        for check_xpath_pc in xpath_process_number:
-                            if check_xpath_pc!=rec_process_number:
-                                if terminate_flag[xpath_flag_number[i]]==1:
-                                    check_terminate_flag=check_terminate_flag+1
-                            i=i+1
-                        if check_terminate_flag==len(xpath_process_number)-2:
-                            input("dead lock. enter:backward mode")
-                            mode.value=1
-                            rough_mode_change2=0
-                            record_contract_top=2
-                            ens_error_flag=0
-                            break
-                #ensures control
-                    check_flag=0
-                    i=0
-                    for check_PC in ens_PC:
-                        if check_PC==program_counter.value:
-                            check_flag=1
-                            con_number=i
-                        i=i+1
-                    if check_flag==1:
-                        (xpath_process_path,my_flag_number)=search_xpath(exp_xpath[con_number],xpath_table,xpath_process_number,path_queue2,xpath_flag_number)
-                        monitor_top=0
-                        i=0
-                        for l in ens_com[con_number]:
-                            (monitor_stack,monitor_top)=monitor_exec_command(monitor_stack,monitor_top,ens_com[con_number][i],ens_opr[con_number][i],xpath_process_path,terminate_flag[my_flag_number])
-                            i=i+1
-                        if monitor_stack[-1]==0:
-                            print("[error] ensures d"+str(ens_name[con_number])+" line:"+str(ori_num[ens_PC[con_number]]-1))
-                            #mode.value=1
-                            with open("record_contract_table.txt",'a') as f:
-                                f.write(str(ens_PC[con_number])+" F\n")
-                    #    sys.exit()
-                            str2=input("enter: next step")
-                            if str2=='1':
-                                break
-                        elif monitor_stack[-1]==1:
-                            with open("record_contract_table.txt",'a') as f:
-                                f.write(str(ens_PC[con_number])+" T\n")
-                    if program_counter.value+1==count_pc and rough_mode_change==0:
-                        mode.value=5
-                        rough_mode_change=1
-                    elif rough_mode_change==1:
-                        str7=input("enter: backward mode")
-                        mode.value=1
-                        rough_mode_change2=0
-                        record_contract_top=2
-                        ens_error_flag=0
-                elif mode.value==1:
-                    with open("record_contract_table.txt",'r') as f:
-                        record_contract=f.read().split('\n')
-                    if record_contract_top<len(record_contract):
-                        t1=re.search(r'\d+',record_contract[-record_contract_top])
-                        t2=re.search(r'T|F',record_contract[-record_contract_top])
-                        if t2.group()=='F' and ens_error_flag==0:
-                            if int(t1.group())==count_pc-program_counter.value+1:
-                                input("next_step")
-                                ens_error_flag=1
-                        elif t2.group()=='T' and ens_error_flag==0:
-                            record_contract_top=record_contract_top+1
-                        elif ens_error_flag==1:
-                            input("next_step")
-                            for i in range(0,len(exp_PC),1):
-                                if ens_PC[i]==int(t1.group()):
-                                    ret_exp_pc=exp_PC[i]
-                                    break
-                            if ret_exp_pc==count_pc-program_counter.value:
-                                record_contract_top=record_contract_top+1
-                                ens_error_flag=0
-                    if program_counter.value+1==count_pc and rough_mode_change2==0:
-                        rough_mode_change2=1
-                    elif rough_mode_change2==1:
-                        input("enter: end")
-                        break
-                mlock.release()
-            print("while end")
-        process.join()
+        monitor_turn.value = 1
+        process.kill()
     elif args[2]=='c':#convert forward bytecode to backward bytecode
         forward(com,opr,count_pc)
     
