@@ -1,14 +1,13 @@
 # RevDebugger
 
 ## Debugger is still under development (Mar 4, 2022)
-# Not working properly yet. (Mar 7, 2022)
-
+ 
 How to use Parser:
 
 [convert a sorce code to a forward byte code]
 -----------------------------
 command: 
-java javacc parser.jj
+java -cp . javacc parser.jj
 
 javac Parser.java
 
@@ -32,16 +31,6 @@ python vm_CUI.py code.txt c
 ---------------------------
 This command outputs a backward byte code(inv_code.txt). 
 You need to run this command before you start execution.
-
-
-[execute in normal mode]
----------------------------
-command:
-python vm_CUI.py code.txt f
----------------------------
-When the forward execution is finished, start the backward execution.
-
-
 
 [execute in debug mode]
 ----------------------------
