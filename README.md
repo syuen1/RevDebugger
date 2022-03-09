@@ -1,5 +1,9 @@
 # RevDebugger
 
+This is an experimental implementation of 'reversible debugger with contracts for parallel imperative programs' submitted to RC2022.
+The aim is to illustrate the reversible debugging method.
+It should work for the airline example in the paper.
+
 ## Debugger is still under development (Mar 4, 2022)
  
 How to use Parser:
@@ -11,7 +15,7 @@ javacc parser.jj
 
 javac *.java
 
-java Parser "sorce code name"
+java -cp . Parser "sorce code name"
 ------------------------------
 
 This command outputs a forward byte code, parallel table files, and a contract table.
