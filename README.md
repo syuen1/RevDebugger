@@ -4,12 +4,12 @@
  
 How to use Parser:
 
-[convert a sorce code to a forward byte code]
+[Compile a sorce code to a forward byte code]
 -----------------------------
 command: 
-java -cp . javacc parser.jj
+javacc parser.jj
 
-javac Parser.java
+javac *.java
 
 java Parser "sorce code name"
 ------------------------------
