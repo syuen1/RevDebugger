@@ -1,6 +1,4 @@
-# A reversible debugger for parallel imperarative programs
-# 2022/03/10 2:45 
-# Shoji Yuen and Takashi Ikeda, 2022
+#new program 2022/03/02 13:45 yuen
 import re
 import sys
 import os
@@ -1395,7 +1393,7 @@ if __name__ == '__main__':
                             back_my_flag_number=my_flag_number
                             ens_back_pc=program_counter.value
                             ens_error_check=0
-                            str2=("Enter: change to backward mode, 1:quit")
+                            str2=input("Enter: change to backward mode, 1:quit")
                             if str2=='1':
                                 break
                             monitor_process_count.value = 0
