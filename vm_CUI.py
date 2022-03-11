@@ -57,6 +57,268 @@ def search_table(opr,process_path):
                     t=match_count
     return address
 
+#read the code for execution and store it in each list
+def coderead():
+    global codes
+    global com
+    global opr
+    global count_pc
+    global parflag
+    f=open(args[1],mode='r')
+    codes=f.read()
+    f.close()
+    count_pc=0
+    for l in codes[:-1].split("\n"):
+        t1=l[0:2]
+        s1=re.search(r'\d+',t1)
+        t2=l[2:8]
+        s2=re.search(r'\d+',t2)
+        t3=l[8:14]
+        s3=re.search(r'\d+',t3)
+        com.append((int)(s1.group()))
+        opr.append((int)(s2.group()))
+        ori_num.append((int)(s3.group()))
+        count_pc=count_pc+1
+    if args[2]=='df' or args[2]=='f':
+        f2=open("inv_code.txt",mode='r')
+        codes2=f2.read()
+        f2.close()
+        for l2 in codes2[:-1].split("\n"):
+            t1=l2[0:2]
+            s1=re.search(r'\d+',t1)
+            t2=l2[2:8]
+            s2=re.search(r'\d+',t2)
+            t3=l2[8:14]
+            s3=re.search(r'\d+',t3)
+            back_com.append((int)(s1.group()))
+            back_opr.append((int)(s2.group()))
+            back_ori_num.append((int)(s3.group()))
+
+#clear each list
+def all_contract_list_clear(exp_name,exp_PC,ens_name,ens_PC,exp_com,exp_opr,ens_com,ens_opr,exp_xpath,ens_xpath):
+    exp_name.clear()
+    exp_PC.clear()
+    ens_name.clear()
+    ens_PC.clear()
+    for i in range(0,len(exp_com),1):
+        exp_com[i].clear()
+    for i in range(0,len(exp_opr),1):
+        exp_opr[i].clear()
+    for i in range(0,len(ens_com),1):
+        ens_com[i].clear()
+    for i in range(0,len(ens_opr),1):
+        ens_opr[i].clear()
+    exp_xpath.clear()
+    ens_xpath.clear()
+    exp_xpath.append("")
+    ens_xpath.append("")    
+    return (exp_name,exp_PC,ens_name,ens_PC,exp_com,exp_opr,ens_com,ens_opr,exp_xpath,ens_xpath)
+
+
+
+
+
+
+#convert each instruction in the forward direction to backward instruction
+def forward(com,opr,count_pc):
+    f2=open("inv_code.txt",mode='w')
+    for i in range(0,count_pc,1):
+        if com[count_pc-i-1]==7:#label to rjmp
+            f2.write("21     0 ("+str(ori_num[count_pc-i-1]).rjust(4)+")\n")
+        elif com[count_pc-i-1]==3:#store to restore
+            f2.write("22 "+str(opr[count_pc-i-1]).rjust(5)+" ("+str(ori_num[count_pc-i-1]).rjust(4)+")\n")
+        elif com[count_pc-i-1]==4:#jpc to nop (changed [yuen] to label)
+            f2.write("7     0 ("+str(ori_num[count_pc-i-1]).rjust(4)+")\n")
+        elif com[count_pc-i-1]==5:
+            f2.write("7     0 ("+str(ori_num[count_pc-i-1]).rjust(4)+")\n")#jmp to nop (chnged [yuen] to label)
+        elif com[count_pc-i-1]==8:#par to par
+            if opr[count_pc-i-1]==0:
+                f2.write("23 "+str(1).rjust(5)+" ("+str(ori_num[count_pc-i-1]).rjust(4)+")\n")
+            elif opr[count_pc-i-1]==1:
+                f2.write("23 "+str(0).rjust(5)+" ("+str(ori_num[count_pc-i-1]).rjust(4)+")\n")
+        elif com[count_pc-i-1]==9:#alloc to r_free
+            f2.write("25 "+str(opr[count_pc-i-1]).rjust(5)+" ("+str(ori_num[count_pc-i-1]).rjust(4)+")\n")
+        elif com[count_pc-i-1]==10:#free to r_alloc
+            f2.write("24 "+str(opr[count_pc-i-1]).rjust(5)+" ("+str(ori_num[count_pc-i-1]).rjust(4)+")\n")
+        elif com[count_pc-i-1]==11:#proc to rjmp
+            pname="p"+str(opr[count_pc-i-1])
+            f2.write("21 "+pname.rjust(5)+" ("+str(ori_num[count_pc-i-1]).rjust(4)+")\n")
+        elif com[count_pc-i-1]==12:#p_return to nop [yuen]
+            pname="p"+str(opr[count_pc-i-1])
+            f2.write("7  "+pname.rjust(5)+" ("+str(ori_num[count_pc-i-1]).rjust(4)+")\n")
+        elif com[count_pc-i-1]==13:#block to nop
+            if com[count_pc-i]==5 and com[count_pc-i+1]==7 and com[count_pc-i+2]==16:
+                bname="c"+str(opr[count_pc-i-1])
+            else:
+                bname="b"+str(opr[count_pc-i-1])
+            f2.write("28 "+bname.rjust(5)+" ("+str(ori_num[count_pc-i-1]).rjust(4)+")\n")
+        elif com[count_pc-i-1]==14:#end to nop
+            if com[count_pc-i-2]==7 and com[count_pc-i-3]==5 and com[count_pc-i-4]==15:
+                bname="c"+str(opr[count_pc-i-1])
+            else:
+                bname="b"+str(opr[count_pc-i-1])
+            f2.write("28 "+bname.rjust(5)+" ("+str(ori_num[count_pc-i-1]).rjust(4)+")\n")
+        elif com[count_pc-i-1]==15:#fork to r_merge
+            aname="a"+str(opr[count_pc-i-1])
+            f2.write("27 "+aname.rjust(5)+" ("+str(ori_num[count_pc-i-1]).rjust(4)+")\n")
+        elif com[count_pc-i-1]==16:#merge to r_fork
+            aname="a"+str(opr[count_pc-i-1])
+            f2.write("26 "+aname.rjust(5)+" ("+str(ori_num[count_pc-i-1]).rjust(4)+")\n")
+        elif com[count_pc-i-1]==17:#func to rjmp
+            fname="f"+str(opr[count_pc-i-1])
+            f2.write("21 "+fname.rjust(5)+" ("+str(ori_num[count_pc-i-1]).rjust(4)+")\n")
+        elif com[count_pc-i-1]==18:#f_return to nop
+            fname="f"+str(opr[count_pc-i-1])
+            f2.write("28 "+fname.rjust(5)+" ("+str(ori_num[count_pc-i-1]).rjust(4)+")\n")
+        else:
+            f2.write("28     0 ("+str(ori_num[count_pc-i-1]).rjust(4)+")\n")
+    f2.close()
+
+#read contract table and store each list
+def read_contract_table(exp_name,exp_PC,ens_name,ens_PC,exp_com,exp_opr,ens_com,ens_opr,exp_xpath,ens_xpath):
+    f3=open("contract_table.txt",mode='r')
+    table1=f3.read()
+    con_table=table1[:-1]
+    count_exp=0
+    count_ens=0
+    bef=0
+    if con_table=='':
+        exp_PC=100000
+        ens_PC=100000
+        f3.close()
+        return (exp_name,exp_PC,ens_name,ens_PC,exp_com,exp_opr,ens_com,ens_opr,exp_xpath,ens_xpath)
+    for l in con_table.split("\n"):
+        if l[0]=='{':
+            if bef==0:
+                i=0
+                while l[i+1]!='}':
+                    debug_a1=l[i+1:i+4]
+                    debug_b1=re.search(r'\d+',debug_a1)
+                    exp_com[count_exp].append((int)(debug_b1.group()))
+                    debug_a2=l[i+4:i+10]
+                    debug_b2=re.search(r'(-)?\d+',debug_a2)
+                    exp_opr[count_exp].append((int)(debug_b2.group()))
+                    i=i+10
+                count_exp=count_exp+1
+            elif bef==1:
+                i=0
+                while l[i+1]!='}':
+                    debug_a1=l[i+1:i+4]
+                    debug_b1=re.search(r'\d+',debug_a1)
+                    ens_com[count_ens].append((int)(debug_b1.group()))
+                    debug_a2=l[i+4:i+10]
+                    debug_b2=re.search(r'(-)?\d+',debug_a2)
+                    ens_opr[count_ens].append((int)(debug_b2.group()))
+                    i=i+10
+                count_ens=count_ens+1
+        else:
+            if l[12:15]=='EXP':
+                debug_t1=l[0:5]
+                debug_s1=re.search(r'\d+',debug_t1)
+                debug_t2=l[6:11]
+                debug_s2=re.search(r'\d+',debug_t2) 
+                exp_name.append((int)(debug_s1.group()))
+                exp_PC.append((int)(debug_s2.group()))
+                exp_xpath.append(l[17:])
+                bef=0
+            elif l[12:15]=='ENS':
+                debug_t1=l[0:5]
+                debug_s1=re.search(r'\d+',debug_t1)
+                debug_t2=l[6:11]
+                debug_s2=re.search(r'\d+',debug_t2)
+                ens_name.append((int)(debug_s1.group()))
+                ens_PC.append((int)(debug_s2.group()))
+                ens_xpath.append(l[17:])
+                bef=1
+    f3.close()
+    del exp_xpath[0]
+    del ens_xpath[0]
+    return (exp_name,exp_PC,ens_name,ens_PC,exp_com,exp_opr,ens_com,ens_opr,exp_xpath,ens_xpath)
+
+#clear each list
+def coderead_list_clear():
+    com.clear()
+    opr.clear()
+    ori_num.clear()
+    back_com.clear()
+    back_opr.clear()
+    back_ori_num.clear()
+    count_pc=0
+
+#monitor executes contract's bytecodes
+def monitor_exec_command(stack,top,com,opr,process_path,living_flag):
+    if com==1:#push 
+        top=push(opr,stack,top)
+        return (stack,top)
+    elif com==2:#load 
+        c=value[search_table(opr,process_path)]
+        top=push(c,stack,top)
+        return (stack,top)
+    elif com==6:#op 
+        if (opr)==0:#'+'
+            (c,top)=pop1(stack,top)
+            (d,top)=pop1(stack,top)
+            top=push(c+d,stack,top)
+        elif (opr)==1:#'*'
+            (c,top)=pop1(stack,top)
+            (d,top)=pop1(stack,top)
+            top=push(c*d,stack,top)
+        elif opr==2:#'-'
+            (c,top)=pop1(stack,top)
+            (d,top)=pop1(stack,top)
+            top=push(d-c,stack,top)
+        elif opr==3:#'>'
+            (c,top)=pop1(stack,top)
+            (d,top)=pop1(stack,top)
+            if d>c:
+                top=push(1,stack,top)
+            else:
+                top=push(0,stack,top)
+        elif opr==4:#'=='
+            (c,top)=pop1(stack,top)
+            (d,top)=pop1(stack,top)
+            if d==c:
+                top=push(1,stack,top)
+            else:
+                top=push(0,stack,top)
+        elif opr==5:#'not'
+            (c,top)=pop1(stack,top)
+            if c==0:
+                top=push(1,stack,top)
+            elif c==1:
+                top=push(0,stack,top)
+        return (stack,top)
+    elif com==30:#terminated
+        if living_flag==1:
+            top=push(1,stack,top) 
+        elif living_flag==0:
+            top=push(0,stack,top)
+        return (stack,top)
+    elif com==31:#living
+        if living_flag==1:
+            top=push(0,stack,top)
+        elif living_flag==0:
+            top=push(1,stack,top)  
+        return (stack,top)
+
+def search_xpath(exp_xpath,xpath_table,xpath_process_number,my_process_number,xpath_flag_number):
+    t1=my_process_number.split('.')
+    xpath_process_path="E"
+    my_flag_number=0
+    if exp_xpath=="SELF":
+        t2=my_process_number
+    elif exp_xpath=="PRECEND":
+        t1[-1]=str(int(t1[-1])-1)
+        t2='.'.join(t1)
+    elif exp_xpath=="FOLLOW":
+        t1[-1]=str(int(t1[-1])+1)
+        t2='.'.join(t1)
+    for i in range(0,len(xpath_table),1):
+        if t2==xpath_process_number[i]:
+            xpath_process_path=xpath_table[i]
+            my_flag_number=xpath_flag_number[i]
+    return (xpath_process_path,my_flag_number)
+
 #execution of each instruction
 def executedcommand(stack,rstack,lstack,com,opr,back_com,back_opr,\
     pc,pre,top,rtop,ltop,address,value,tablecount,variable_region,lock,\
@@ -503,6 +765,7 @@ def executedcommand(stack,rstack,lstack,com,opr,back_com,back_opr,\
     elif back_com[pc]==27 and mode.value==1:
         pre=pc
         return (pc+1,pre,stack,top,rtop,tablecount,process_path)
+################# executed command ###########################################
 
 #This function executes bytecodes.  wrapping Process invocation
 def execution(command,opr,back_com,back_opr,start,end,count_pc,\
@@ -531,8 +794,6 @@ def execution(command,opr,back_com,back_opr,start,end,count_pc,\
     #forward
     if args[2]=='df' or args[2]=='f':
         while pc!=end or (pc==end and end_skip_flag==1) or command[pre]==15 or my_terminate_flag==1:
-          if my_terminate_flag == 1:
-              print("My terminate flag is 1")
           if p_turn.value == 1:
             lock.acquire()
             p_turn.value = 0
@@ -544,11 +805,20 @@ def execution(command,opr,back_com,back_opr,start,end,count_pc,\
             q.put(process_path)
             q2.put(process_number)
             q3.put(flag_number)
-            # mode 0
-            if mode.value==0 or mode.value==4:
-                if my_revinit == 0 and mode.value==4:
+            ############ Mode 0/4 execution ###############################
+            if mode.value == 0 or mode.value ==4:
+                #### Mode 4 needs reversal initially ####
+                if my_revinit == 0 and mode.value==4: # mode 4 local initilization
                     my_revinit = 1
-                #
+                    pc = count_pc-pre-1
+                    end = count_pc-start-1
+                    with open("jump_stack.txt",'r') as f:
+                        jstack0=f.read().split()
+                    f.close()
+                    for i in range(0,jtop,1):
+                        if (process_number==jstack0[i*2+1]):
+                            jstack.append(int(jstack0[i]))
+                #### Forward execition
                 if command[pc]==1:
                     command1='   ipush'
                 elif command[pc]==2:
@@ -628,9 +898,9 @@ def execution(command,opr,back_com,back_opr,start,end,count_pc,\
             #backward mode
             elif mode.value ==1:
                 if my_rstart_flag==0: # The process invoked in forward Local initialization
-                    print("Process locally reversed")
-                    if my_rstart_flag == 0:
-                        my_rstart_flag=1
+                    # started by r_fork with my_rstart_flag = 1, otherwise this is 0
+                    # print("Process locally reversed")
+                    my_rstart_flag=1
                     pc = count_pc-pre-1
                     end = count_pc-start-1
                 if my_revinit ==0: # all processes deal with jump_stack locally
@@ -679,8 +949,8 @@ def execution(command,opr,back_com,back_opr,start,end,count_pc,\
                     command1='     nop'
                 s=re.search(r'\d(\.\d+)*',lstack[ltop.value-2+1]) # next process for lstack
                 s2=re.search(r'\d(\.\d+)*',rstack[rtop.value-3+1]) # next process for rstack
-                with open("endflag.txt",'r') as f:
-                    my_endflag=f.read().split(',')
+#                with open("endflag.txt",'r') as f:
+#                    my_endflag=f.read().split(',')
                 #check if the process number matches the process number on each value stack and label stack top in rjmp,restore.
                 # check process number for restore and r_alloc with rstack and for rjmp with lstack
                 if ((process_number==s2.group() and (back_com[pc]==22 or back_com[pc]==24))\
@@ -708,9 +978,9 @@ def execution(command,opr,back_com,back_opr,start,end,count_pc,\
                         t2=re.search(r'([a-z]\d+\.)+',table1[2*i])
                         print(t2.group()+'['+variable_name[int(t1.group())]+'] = '+str(value[i]))
                     print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n")
-                    if my_endflag[0]!='':
-                        if my_endflag[flag_number]=='1' and back_com[pc]==23 and back_opr[pc]==1:
-                            my_terminate_flag=1
+#                   if my_endflag[0]!='':
+#                        if my_endflag[flag_number]=='1' and back_com[pc]==23 and back_opr[pc]==1:
+#                            my_terminate_flag=1
                     if back_com[pc]==7: #label
                         jtop = jtop - 1 # one jump reversed
                     if back_com[pc]==26: # r_fork
@@ -751,10 +1021,11 @@ def execution(command,opr,back_com,back_opr,start,end,count_pc,\
                 recovered_statement_flag=1
                 monitor_process_count.value=monitor_process_count.value+1 # confirm the process has been reversed
                 my_terminate_flag=0
-                my_revinit=1 # initialize locally
+                my_revinit=0 # initialize locally
                 my_rstart_flag=0 # set once for forward execution
+                mchange_flag.value=0
         #        print("process_number="+process_number+" jstack="+str(jstack)+" jtop="+str(jtop))
-            elif mode.value==3: # or mode.value==4:
+            elif mode.value==3: #
                 if my_revinit==0: # initialization for jstack
                     my_revinit=1
                     with open("jump_stack.txt",'r') as f:
@@ -763,7 +1034,6 @@ def execution(command,opr,back_com,back_opr,start,end,count_pc,\
                     for i in range(0,len(jstack0),2):
                         if (process_number==jstack0[i+1]):
                             jstack.append(int(jstack0[i]))
-                    jtop = 0 # 
                 #print("process:"+process_number+" jtop=",jtop," jstack=",jstack)
                 '''
                     if mode.value==4:
@@ -824,58 +1094,57 @@ def execution(command,opr,back_com,back_opr,start,end,count_pc,\
                     s2=re.search(r'\d(\.\d+)*',rstack[rtop.value+1]) # next process for rstack
                 else:
                     s2=re.search(r'-1','-1')
-                if mode.value == 3:
-                    #print("process number="+process_number+" next process="+str(s2.group())+" pc="+str(pc)+":"+command1+" rtop="+str(rtop.value)+" rstack",rstack)
-                    #print("ltop=",ltop.value," lstack=",lstack)
-                    if (process_number==s2.group() and command[pc]==3)\
-                        or (process_number==s.group() and (command[pc]==4 or command[pc]==5))\
-                            or (command[pc]!=3 and command[pc]!=4 and command[pc]!=5)\
-                                and my_terminate_flag==0:
+                #print("process number="+process_number+" next process="+str(s2.group())+" pc="+str(pc)+":"+command1+" rtop="+str(rtop.value)+" rstack",rstack)
+                #print("ltop=",ltop.value," lstack=",lstack)
+                if (process_number==s2.group() and command[pc]==3)\
+                    or (process_number==s.group() and (command[pc]==4 or command[pc]==5))\
+                        or (command[pc]!=3 and command[pc]!=4 and command[pc]!=5)\
+                            and my_terminate_flag==0:
+                    with open("output.txt",'a') as f:
+                        f.write("~~~~~~~~Process"+process_number+" forward execute~~~~~~(mode="+str(mode.value)+")~~\n")
+                        f.write("path : "+process_path+"\n")
+                        f.write("pc = "+str(pc+1)+"   command = "+command1+":"+(str)(command[pc])+"    operand = "+str(opr[pc])+"\n")
+                    print("~~~~~~~~Process"+process_number+" forward execute~~~~~~(mode="+str(mode.value)+")~~")
+                    print("path : "+process_path)
+                    print("pc = "+str(pc+1)+" [line:"+str(process_back_ori_num[count_pc-pc-1])+"]   command = "+command1+":"+(str)(command[pc])+"    operand = "+str(opr[pc])+"")
+                    step_flag.value=step_flag.value+1
+                    jmp_flag = 0
+                    if command[pc]==4 or command[pc]==5 or command[pc]==12:
+                    #    print(jtop,jstack)
+                        jmp_flag = jstack[jtop]
+                        jtop = jtop + 1
+                    #execute each instructions
+                    (pc,pre,stack,top,rtop,tablecount,process_path)=executedcommand(stack,rstack,lstack,command,opr,back_com,back_opr,\
+                        pc,pre,top,rtop,ltop,address,value,tablecount,variable_region,lock,\
+                            process_number,process_path,count_pc,process_count,terminate_flag,flag_number,\
+                                mlock,mlock2,program_counter,q,q2,q3,mode,mchange_flag,\
+                                    monitor_process_count,now_process_count,process_back_ori_num,step_flag,jmp_flag,monitor_turn,p_turn)
+                    if command[pre]==15:
                         with open("output.txt",'a') as f:
-                            f.write("~~~~~~~~Process"+process_number+" forward execute~~~~~~(mode="+str(mode.value)+")~~\n")
-                            f.write("path : "+process_path+"\n")
-                            f.write("pc = "+str(pc+1)+"   command = "+command1+":"+(str)(command[pc])+"    operand = "+str(opr[pc])+"\n")
-                        print("~~~~~~~~Process"+process_number+" forward execute~~~~~~(mode="+str(mode.value)+")~~")
-                        print("path : "+process_path)
-                        print("pc = "+str(pc+1)+" [line:"+str(process_back_ori_num[count_pc-pc-1])+"]   command = "+command1+":"+(str)(command[pc])+"    operand = "+str(opr[pc])+"")
-                        step_flag.value=step_flag.value+1
-                        jmp_flag = 0
-                        if command[pc]==4 or command[pc]==5 or command[pc]==12:
-                            print(jtop,jstack)
-                            jmp_flag = jstack[jtop]
-                            jtop = jtop + 1
-                        #execute each instructions
-                        (pc,pre,stack,top,rtop,tablecount,process_path)=executedcommand(stack,rstack,lstack,command,opr,back_com,back_opr,\
-                            pc,pre,top,rtop,ltop,address,value,tablecount,variable_region,lock,\
-                                process_number,process_path,count_pc,process_count,terminate_flag,flag_number,\
-                                    mlock,mlock2,program_counter,q,q2,q3,mode,mchange_flag,\
-                                        monitor_process_count,now_process_count,process_back_ori_num,step_flag,jmp_flag,monitor_turn,p_turn)
-                        if command[pre]==15:
-                            with open("output.txt",'a') as f:
-                                f.write("---fork end--- (process "+process_number+")\n")
-                            print("---fork end--- (process "+process_number+")")
-                        with open("output.txt",'a') as f:
-                            f.write("executing stack:       "+str(stack[0:])+"\n")
-                            f.write("shared variable stack: "+str(value[0:tablecount.value])+"\n")
-                            f.write("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n\n")
-                        print("executing stack:       "+str(stack[0:])+"")
-                        print("[variable]")
-                        with open("variable_table.txt",'r') as f:
-                            table1=f.read().split()
-                        with open("table.txt",'r') as f:
-                            table2=f.read().split()
-                        variable_name=[]
-                        for i in range(0,len(table2),3):
-                            variable_name.append(table2[i])
-                        for i in range(0,tablecount.value,1):
-                            t1=re.search(r'\d+',table1[2*i])
-                            t2=re.search(r'([a-z]\d+\.)+',table1[2*i])
-                            print(t2.group()+'['+variable_name[int(t1.group())]+'] = '+str(value[i]))
-                        print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n")
-                        if command[pre]==8 and opr[pre]==1 and pc!=end:
-                            end=count_pc-start
-                        path_record=process_path
-                        recovered_statement_flag=0 # ????
+                            f.write("---fork end--- (process "+process_number+")\n")
+                        print("---fork end--- (process "+process_number+")")
+                    with open("output.txt",'a') as f:
+                        f.write("executing stack:       "+str(stack[0:])+"\n")
+                        f.write("shared variable stack: "+str(value[0:tablecount.value])+"\n")
+                        f.write("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n\n")
+                    print("executing stack:       "+str(stack[0:])+"")
+                    print("[variable]")
+                    with open("variable_table.txt",'r') as f:
+                        table1=f.read().split()
+                    with open("table.txt",'r') as f:
+                        table2=f.read().split()
+                    variable_name=[]
+                    for i in range(0,len(table2),3):
+                        variable_name.append(table2[i])
+                    for i in range(0,tablecount.value,1):
+                        t1=re.search(r'\d+',table1[2*i])
+                        t2=re.search(r'([a-z]\d+\.)+',table1[2*i])
+                        print(t2.group()+'['+variable_name[int(t1.group())]+'] = '+str(value[i]))
+                    print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n")
+                    if command[pre]==8 and opr[pre]==1 and pc!=end:
+                        end=count_pc-start
+                    path_record=process_path
+                    recovered_statement_flag=0 # ????
             if (command[pre]!=15 and (mode.value==0 or mode.value==3 or mode.value==4)) \
                 or (back_com[pre]!=26 and mode.value==1) or mode.value==2: #and mode.value!=3 and mode.value!=4:
                 mlock.release()
@@ -931,265 +1200,10 @@ def execution(command,opr,back_com,back_opr,start,end,count_pc,\
                 print("shared variable stack: "+str(value[0:tablecount.value])+"\n")
             lock.release()
         terminate_flag[flag_number]=1
-    #return stack        
+    #return stack 
+########################### execution end ###############################################       
 
-#read the code for execution and store it in each list
-def coderead():
-    global codes
-    global com
-    global opr
-    global count_pc
-    global parflag
-    f=open(args[1],mode='r')
-    codes=f.read()
-    f.close()
-    count_pc=0
-    for l in codes[:-1].split("\n"):
-        t1=l[0:2]
-        s1=re.search(r'\d+',t1)
-        t2=l[2:8]
-        s2=re.search(r'\d+',t2)
-        t3=l[8:14]
-        s3=re.search(r'\d+',t3)
-        com.append((int)(s1.group()))
-        opr.append((int)(s2.group()))
-        ori_num.append((int)(s3.group()))
-        count_pc=count_pc+1
-    if args[2]=='df' or args[2]=='f':
-        f2=open("inv_code.txt",mode='r')
-        codes2=f2.read()
-        f2.close()
-        for l2 in codes2[:-1].split("\n"):
-            t1=l2[0:2]
-            s1=re.search(r'\d+',t1)
-            t2=l2[2:8]
-            s2=re.search(r'\d+',t2)
-            t3=l2[8:14]
-            s3=re.search(r'\d+',t3)
-            back_com.append((int)(s1.group()))
-            back_opr.append((int)(s2.group()))
-            back_ori_num.append((int)(s3.group()))
-
-#clear each list
-def coderead_list_clear():
-    com.clear()
-    opr.clear()
-    ori_num.clear()
-    back_com.clear()
-    back_opr.clear()
-    back_ori_num.clear()
-    count_pc=0
-
-#convert each instruction in the forward direction to backward instruction
-def forward(com,opr,count_pc):
-    f2=open("inv_code.txt",mode='w')
-    for i in range(0,count_pc,1):
-        if com[count_pc-i-1]==7:#label to rjmp
-            f2.write("21     0 ("+str(ori_num[count_pc-i-1]).rjust(4)+")\n")
-        elif com[count_pc-i-1]==3:#store to restore
-            f2.write("22 "+str(opr[count_pc-i-1]).rjust(5)+" ("+str(ori_num[count_pc-i-1]).rjust(4)+")\n")
-        elif com[count_pc-i-1]==4:#jpc to nop (changed [yuen] to label)
-            f2.write("7     0 ("+str(ori_num[count_pc-i-1]).rjust(4)+")\n")
-        elif com[count_pc-i-1]==5:
-            f2.write("7     0 ("+str(ori_num[count_pc-i-1]).rjust(4)+")\n")#jmp to nop (chnged [yuen] to label)
-        elif com[count_pc-i-1]==8:#par to par
-            if opr[count_pc-i-1]==0:
-                f2.write("23 "+str(1).rjust(5)+" ("+str(ori_num[count_pc-i-1]).rjust(4)+")\n")
-            elif opr[count_pc-i-1]==1:
-                f2.write("23 "+str(0).rjust(5)+" ("+str(ori_num[count_pc-i-1]).rjust(4)+")\n")
-        elif com[count_pc-i-1]==9:#alloc to r_free
-            f2.write("25 "+str(opr[count_pc-i-1]).rjust(5)+" ("+str(ori_num[count_pc-i-1]).rjust(4)+")\n")
-        elif com[count_pc-i-1]==10:#free to r_alloc
-            f2.write("24 "+str(opr[count_pc-i-1]).rjust(5)+" ("+str(ori_num[count_pc-i-1]).rjust(4)+")\n")
-        elif com[count_pc-i-1]==11:#proc to rjmp
-            pname="p"+str(opr[count_pc-i-1])
-            f2.write("21 "+pname.rjust(5)+" ("+str(ori_num[count_pc-i-1]).rjust(4)+")\n")
-        elif com[count_pc-i-1]==12:#p_return to nop [yuen]
-            pname="p"+str(opr[count_pc-i-1])
-            f2.write("7  "+pname.rjust(5)+" ("+str(ori_num[count_pc-i-1]).rjust(4)+")\n")
-        elif com[count_pc-i-1]==13:#block to nop
-            if com[count_pc-i]==5 and com[count_pc-i+1]==7 and com[count_pc-i+2]==16:
-                bname="c"+str(opr[count_pc-i-1])
-            else:
-                bname="b"+str(opr[count_pc-i-1])
-            f2.write("28 "+bname.rjust(5)+" ("+str(ori_num[count_pc-i-1]).rjust(4)+")\n")
-        elif com[count_pc-i-1]==14:#end to nop
-            if com[count_pc-i-2]==7 and com[count_pc-i-3]==5 and com[count_pc-i-4]==15:
-                bname="c"+str(opr[count_pc-i-1])
-            else:
-                bname="b"+str(opr[count_pc-i-1])
-            f2.write("28 "+bname.rjust(5)+" ("+str(ori_num[count_pc-i-1]).rjust(4)+")\n")
-        elif com[count_pc-i-1]==15:#fork to r_merge
-            aname="a"+str(opr[count_pc-i-1])
-            f2.write("27 "+aname.rjust(5)+" ("+str(ori_num[count_pc-i-1]).rjust(4)+")\n")
-        elif com[count_pc-i-1]==16:#merge to r_fork
-            aname="a"+str(opr[count_pc-i-1])
-            f2.write("26 "+aname.rjust(5)+" ("+str(ori_num[count_pc-i-1]).rjust(4)+")\n")
-        elif com[count_pc-i-1]==17:#func to rjmp
-            fname="f"+str(opr[count_pc-i-1])
-            f2.write("21 "+fname.rjust(5)+" ("+str(ori_num[count_pc-i-1]).rjust(4)+")\n")
-        elif com[count_pc-i-1]==18:#f_return to nop
-            fname="f"+str(opr[count_pc-i-1])
-            f2.write("28 "+fname.rjust(5)+" ("+str(ori_num[count_pc-i-1]).rjust(4)+")\n")
-        else:
-            f2.write("28     0 ("+str(ori_num[count_pc-i-1]).rjust(4)+")\n")
-    f2.close()
-
-#read contract table and store each list
-def read_contract_table(exp_name,exp_PC,ens_name,ens_PC,exp_com,exp_opr,ens_com,ens_opr,exp_xpath,ens_xpath):
-    f3=open("contract_table.txt",mode='r')
-    table1=f3.read()
-    con_table=table1[:-1]
-    count_exp=0
-    count_ens=0
-    bef=0
-    if con_table=='':
-        exp_PC=100000
-        ens_PC=100000
-        f3.close()
-        return (exp_name,exp_PC,ens_name,ens_PC,exp_com,exp_opr,ens_com,ens_opr,exp_xpath,ens_xpath)
-    for l in con_table.split("\n"):
-        if l[0]=='{':
-            if bef==0:
-                i=0
-                while l[i+1]!='}':
-                    debug_a1=l[i+1:i+4]
-                    debug_b1=re.search(r'\d+',debug_a1)
-                    exp_com[count_exp].append((int)(debug_b1.group()))
-                    debug_a2=l[i+4:i+10]
-                    debug_b2=re.search(r'(-)?\d+',debug_a2)
-                    exp_opr[count_exp].append((int)(debug_b2.group()))
-                    i=i+10
-                count_exp=count_exp+1
-            elif bef==1:
-                i=0
-                while l[i+1]!='}':
-                    debug_a1=l[i+1:i+4]
-                    debug_b1=re.search(r'\d+',debug_a1)
-                    ens_com[count_ens].append((int)(debug_b1.group()))
-                    debug_a2=l[i+4:i+10]
-                    debug_b2=re.search(r'(-)?\d+',debug_a2)
-                    ens_opr[count_ens].append((int)(debug_b2.group()))
-                    i=i+10
-                count_ens=count_ens+1
-        else:
-            if l[12:15]=='EXP':
-                debug_t1=l[0:5]
-                debug_s1=re.search(r'\d+',debug_t1)
-                debug_t2=l[6:11]
-                debug_s2=re.search(r'\d+',debug_t2) 
-                exp_name.append((int)(debug_s1.group()))
-                exp_PC.append((int)(debug_s2.group()))
-                exp_xpath.append(l[17:])
-                bef=0
-            elif l[12:15]=='ENS':
-                debug_t1=l[0:5]
-                debug_s1=re.search(r'\d+',debug_t1)
-                debug_t2=l[6:11]
-                debug_s2=re.search(r'\d+',debug_t2)
-                ens_name.append((int)(debug_s1.group()))
-                ens_PC.append((int)(debug_s2.group()))
-                ens_xpath.append(l[17:])
-                bef=1
-    f3.close()
-    del exp_xpath[0]
-    del ens_xpath[0]
-    return (exp_name,exp_PC,ens_name,ens_PC,exp_com,exp_opr,ens_com,ens_opr,exp_xpath,ens_xpath)
-
-#clear each list
-def all_contract_list_clear(exp_name,exp_PC,ens_name,ens_PC,exp_com,exp_opr,ens_com,ens_opr,exp_xpath,ens_xpath):
-    exp_name.clear()
-    exp_PC.clear()
-    ens_name.clear()
-    ens_PC.clear()
-    for i in range(0,len(exp_com),1):
-        exp_com[i].clear()
-    for i in range(0,len(exp_opr),1):
-        exp_opr[i].clear()
-    for i in range(0,len(ens_com),1):
-        ens_com[i].clear()
-    for i in range(0,len(ens_opr),1):
-        ens_opr[i].clear()
-    exp_xpath.clear()
-    ens_xpath.clear()
-    exp_xpath.append("")
-    ens_xpath.append("")    
-    return (exp_name,exp_PC,ens_name,ens_PC,exp_com,exp_opr,ens_com,ens_opr,exp_xpath,ens_xpath)
-
-#monitor executes contract's bytecodes
-def monitor_exec_command(stack,top,com,opr,process_path,living_flag):
-    if com==1:#push 
-        top=push(opr,stack,top)
-        return (stack,top)
-    elif com==2:#load 
-        c=value[search_table(opr,process_path)]
-        top=push(c,stack,top)
-        return (stack,top)
-    elif com==6:#op 
-        if (opr)==0:#'+'
-            (c,top)=pop1(stack,top)
-            (d,top)=pop1(stack,top)
-            top=push(c+d,stack,top)
-        elif (opr)==1:#'*'
-            (c,top)=pop1(stack,top)
-            (d,top)=pop1(stack,top)
-            top=push(c*d,stack,top)
-        elif opr==2:#'-'
-            (c,top)=pop1(stack,top)
-            (d,top)=pop1(stack,top)
-            top=push(d-c,stack,top)
-        elif opr==3:#'>'
-            (c,top)=pop1(stack,top)
-            (d,top)=pop1(stack,top)
-            if d>c:
-                top=push(1,stack,top)
-            else:
-                top=push(0,stack,top)
-        elif opr==4:#'=='
-            (c,top)=pop1(stack,top)
-            (d,top)=pop1(stack,top)
-            if d==c:
-                top=push(1,stack,top)
-            else:
-                top=push(0,stack,top)
-        elif opr==5:#'not'
-            (c,top)=pop1(stack,top)
-            if c==0:
-                top=push(1,stack,top)
-            elif c==1:
-                top=push(0,stack,top)
-        return (stack,top)
-    elif com==30:#terminated
-        if living_flag==1:
-            top=push(1,stack,top) 
-        elif living_flag==0:
-            top=push(0,stack,top)
-        return (stack,top)
-    elif com==31:#living
-        if living_flag==1:
-            top=push(0,stack,top)
-        elif living_flag==0:
-            top=push(1,stack,top)  
-        return (stack,top)
-
-def search_xpath(exp_xpath,xpath_table,xpath_process_number,my_process_number,xpath_flag_number):
-    t1=my_process_number.split('.')
-    xpath_process_path="E"
-    my_flag_number=0
-    if exp_xpath=="SELF":
-        t2=my_process_number
-    elif exp_xpath=="PRECEND":
-        t1[-1]=str(int(t1[-1])-1)
-        t2='.'.join(t1)
-    elif exp_xpath=="FOLLOW":
-        t1[-1]=str(int(t1[-1])+1)
-        t2='.'.join(t1)
-    for i in range(0,len(xpath_table),1):
-        if t2==xpath_process_number[i]:
-            xpath_process_path=xpath_table[i]
-            my_flag_number=xpath_flag_number[i]
-    return (xpath_process_path,my_flag_number)
-
+###############################################################################################################################################
 #main function
 if __name__ == '__main__':
     manager = Manager()
@@ -1262,6 +1276,8 @@ if __name__ == '__main__':
     temp_path2='0'
     check_skip=0
     p_turn= Value('i',0)
+    str4 = ""
+    mode4_init = 0
 
     a='1'
     path='table.txt'
@@ -1316,7 +1332,7 @@ if __name__ == '__main__':
         =read_contract_table(exp_name,exp_PC,ens_name,ens_PC,exp_com,exp_opr,ens_com,ens_opr,exp_xpath,ens_xpath)
     #forward execution
     if args[2]=='df' or args[2]=='f':
-#       input("debugging start")
+        #################### Root Process Invocation ##################################
         process = Process(target=execution,args=(com,opr,back_com,back_opr,0,count_pc,count_pc,\
             stack,address,value,tablecount,rstack,lstack,rtop,ltop,endflag0,variable_region,\
                 lock,process_number,process_path,process_count,terminate_flag,0,\
@@ -1324,8 +1340,10 @@ if __name__ == '__main__':
                     now_process_count,process_back_ori_num,step_flag,monitor_turn,p_turn,0))
         process_count.value=1
         process.start()
+        ####################### Monitor ###################################
         while program_counter.value+1!=count_pc:
                 mlock.acquire()
+                # Mode 0 forward
                 if mode.value==0: # forward
                     check_flag=0
                     if not q.empty():
@@ -1361,11 +1379,10 @@ if __name__ == '__main__':
                             (monitor_stack,monitor_top)=monitor_exec_command(monitor_stack,monitor_top,exp_com[con_number][i],exp_opr[con_number][i],xpath_process_path,terminate_flag[my_flag_number])
                             i=i+1
                         if monitor_stack[-1]==0:
-                            print("[error] expects ")
-                        #    str2=input("1:end monitor, enter:continue")
-                        #    if str2=='1':
-                        #        break
-                            suspProc.append(path_queue2)
+                            print("[EXPECTS violated] expects d"+str(exp_name[con_number])+" line:"+str(ori_num[exp_PC[con_number]]-1)+" execution suspends Process="+process_number)
+                            str2=input("1:end monitor, enter:continue")
+                            if str2=='1':
+                                break
                             with open("exp_error_process.txt",'a') as f:
                                 f.write(path_queue2+"\n")
                             f.close()
@@ -1393,12 +1410,13 @@ if __name__ == '__main__':
                             back_my_flag_number=my_flag_number
                             ens_back_pc=program_counter.value
                             ens_error_check=0
-                            str2=input("Enter: change to backward mode, 1:quit")
+                            print("Enter: change to backward mode\n1:quit")
+                            str2=input(">")
                             if str2=='1':
                                 break
                             monitor_process_count.value = 0
                             mchange_flag.value = 0
-                # Mode 1
+                # Mode 1 monitor
                 elif mode.value==1: # backward
                     check_flag=0
                     i=0
@@ -1423,25 +1441,33 @@ if __name__ == '__main__':
                         check_flag=1
                         mode4_flag=0
                     if check_flag==1:
-                        mode.value=2
+                        print("[Reached EXPECTS] expects d"+str(ens_name[con_number])+" line:"+str(back_ori_num[error_pc]))
+                        print("0:Backward more\n1:Step Forward - previous trace\n2:Auto Forward - previous trace\n3:Step forward\n4:Auto forward\n5:Load New contract")
+                        str4=input(">")
+                        if str4!='0':
+                          mode.value=2
                 elif mode.value==2:#change backward mode to forward step mode 
                     if now_process_count.value==monitor_process_count.value: # now_process_count = how many processes alive
                         # monitor_process_count = how many process has been inverted
                         # print("all process got back")
-                        print("[Expects] line:"+str(back_ori_num[error_pc]))
-                        print("1:step mode\n2:Follow Previous trace\n3:Auto Forward\n4:New contract")
-                        str4=input()
+                    #    print("[Reached Expect] expects d"+str(ens_name[con_number])+" line:"+str(back_ori_num[error_pc]))
+                    #    print("1:Step - previous trace\n2:Auto - previous trace\n3:Auto forward\n4:Load New contract")
+                    #    str4=input()
                     #    str4=input("1:step mode 2:restrictive auto mode 3:non-restrictive auto mode 4:compile a program with new contract")
-                        if str4=='4':
-                            str5=input("input file name : ")
+                        if str4=='5':
+                            str5=input("Input file name with new contracts : ")
                             os.system('java Parser '+str5)
-                            print("1:step mode\n2:Follow Previous trace\n3:Auto Forward")
+                            print("1:Step - previous trace\n2:Auto - previous trace\n3:Step Forward\n4:Auto Forward")
                             str4=input()
-                        if str4=='1':
+                        if str4=='1': # step mode 3
                             mode.value=3
-                        elif str4=='2':
+                        elif str4=='2': # auto mode 3
                             mode.value=3
-                        elif str4=='3':
+                        elif str4=='3': # step mode 4
+                            mode4_init = 0
+                            mode.value=4
+                        elif str4=='4': # auto mode 4
+                            mode4_init = 0
                             mode.value=4
                         for i in range(0,100,1):
                             endflag[i]=0
@@ -1456,6 +1482,7 @@ if __name__ == '__main__':
                         (exp_name,exp_PC,ens_name,ens_PC,exp_com,exp_opr,ens_com,ens_opr,exp_xpath,ens_xpath)=read_contract_table(exp_name,exp_PC,ens_name,ens_PC,exp_com,exp_opr,ens_com,ens_opr,exp_xpath,ens_xpath)
                     #    print(exp_xpath)
                     #    str3=input()
+                # Mode 3: monitor
                 elif mode.value==3:#step forward mode
                     if True:#step_flag.value==2:
                         if not q.empty():
@@ -1484,15 +1511,15 @@ if __name__ == '__main__':
                                 con_number=i
                             i=i+1
                         if check_flag==1:
-                            print("expects d"+str(exp_name[con_number])+" line:"+str(ori_num[exp_PC[con_number]]-1))
+                            print("[Reached EXPECTS] expects d"+str(exp_name[con_number])+" line:"+str(ori_num[exp_PC[con_number]]-1))
                             (xpath_process_path,my_flag_number)=search_xpath(exp_xpath[con_number],xpath_table,xpath_process_number,path_queue2,xpath_flag_number)
                             monitor_top=0
                             i=0
                             for l in exp_com[con_number]:
                                 (monitor_stack,monitor_top)=monitor_exec_command(monitor_stack,monitor_top,exp_com[con_number][i],exp_opr[con_number][i],xpath_process_path,terminate_flag[my_flag_number])
                                 i=i+1
-                            print("1:end monitor\nEnter:continue")
-                            str2=input()
+                            print("Enter:continue\n1:end monitor")
+                            str2=input(">")
                             if str2=='1':
                                 break
                         #ensures control
@@ -1506,7 +1533,7 @@ if __name__ == '__main__':
                                 con_number=i
                             i=i+1
                         if check_flag==1:
-                            print("ensures check")
+#                            print("ensures check")
                             (xpath_process_path,my_flag_number)=search_xpath(exp_xpath[con_number],xpath_table,xpath_process_number,path_queue2,xpath_flag_number)
                             monitor_top=0
                             i=0
@@ -1528,7 +1555,7 @@ if __name__ == '__main__':
                                 monitor_process_count.value=0
 #                                print("rtop=",rtop.value," ltop=",ltop.value)
                                 print("1:backward\n2:break")
-                                str2=input()
+                                str2=input(">")
                                 if str2=='2':
                                     break
                                 elif str2=='1': # backward again
@@ -1573,7 +1600,40 @@ if __name__ == '__main__':
                             str5=input("Enter: next step")
                         step_count=step_count+1
                 elif mode.value==4:
-                    if True:#step_flag.value==2:
+                    if mode4_init == 0: # initialize mode 4
+                        mode4_init = 1
+                    # recreate value_stack and label_stack upto rtop and ltop
+                        with open("value_stack.txt","r") as f:
+                            values = f.read().split()
+                        f.close()
+                        with open("value_stack.txt","w") as f:
+                            f.write("")
+                        f.close()
+                        with open("value_stack.txt","a") as f:
+                            for i in range(0,rtop.value,3):
+                                f.write(values[i]+" "+values[i+1]+" "+values[i+2]+'\n')
+                            f.close()
+                        with open("label_stack.txt","r") as f:
+                            labels = f.read().split()
+                        f.close()
+                        with open("label_stack.txt","w") as f:
+                            f.write("")
+                        f.close()
+                        with open("label_stack.txt","a") as f:
+                            for i in range(0,ltop.value,2):
+                                f.write(labels[i]+" "+labels[i+1]+'\n')
+                        f.close()
+                        with open("jump_stack.txt","r") as f:
+                            jumps = f.read().split()
+                        f.close()
+                        with open("jump_stack.txt","w") as f:
+                            f.write("")
+                        f.close()
+                        with open("jump_stack.txt","a") as f:
+                            for i in range(0,ltop.value,2):
+                                f.write(jumps[i]+" "+jumps[i+1]+'\n')
+                        f.close()
+                    if True:# body of mode 4 monitor
                         if not q.empty():
                             path_queue=q.get(block=False)
                         if not q2.empty():
@@ -1610,8 +1670,8 @@ if __name__ == '__main__':
                                 exp_error_flag=1
                         if exp_error_flag==1:
                             if one_time_error_flag==0:
-                                print("[error] expects d"+str(exp_name[con_number])+" line:"+str(ori_num[exp_PC[con_number]]-1))
-                                with open("exp_error_process.txt",'w') as f:
+                                print("[EXPECTS violated] expects d"+str(exp_name[con_number])+" line:"+str(ori_num[exp_PC[con_number]]-1))
+                                with open("exp_error_process.txt",'a') as f:
                                     f.write('{1}:{2}\n'.format(con_number,path_queue2))
                                 #    f.write(path_queue2)
                                 one_time_error_flag=1
@@ -1622,16 +1682,16 @@ if __name__ == '__main__':
                                 mode4_flag=1
                                 exp_err_pc=program_counter.value
                                 endflag[my_flag_number]=1
-                                with open("endflag.txt",'w') as f:
-                                    for i in range(0,100,1):
-                                        f.write(str(endflag[i])+",")
-                            if one_time_error_flag==1 and exp_err_pc!=program_counter.value:
+                            #    with open("endflag.txt",'w') as f:
+                            #        for i in range(0,100,1):
+                            #            f.write(str(endflag[i])+",")
+                            #if one_time_error_flag==1 and exp_err_pc!=program_counter.value:
                                 record_pc=program_counter.value+1
                                 one_time_error_flag=2
-                                endflag[path_queue3]=1
-                                with open("endflag.txt",'w') as f:
-                                    for i in range(0,100,1):
-                                        f.write(str(endflag[i])+",")
+                            #    endflag[path_queue3]=1
+                            #    with open("endflag.txt",'w') as f:
+                            #        for i in range(0,100,1):
+                            #            f.write(str(endflag[i])+",")
                             i=0
                             for l in error_exp_com:
                                 (monitor_stack,monitor_top)=monitor_exec_command(monitor_stack,monitor_top,error_exp_com[i],error_exp_opr[i],error_xpath_process_path,terminate_flag[error_my_flag_number])
@@ -1651,7 +1711,7 @@ if __name__ == '__main__':
                                 con_number=i
                             i=i+1
                         if check_flag==1:
-                            print("ensures check")
+#                            print("ensures check")
                             (xpath_process_path,my_flag_number)=search_xpath(exp_xpath[con_number],xpath_table,xpath_process_number,path_queue2,xpath_flag_number)
                             monitor_top=0
                             i=0
@@ -1659,7 +1719,7 @@ if __name__ == '__main__':
                                 (monitor_stack,monitor_top)=monitor_exec_command(monitor_stack,monitor_top,ens_com[con_number][i],ens_opr[con_number][i],xpath_process_path,terminate_flag[my_flag_number])
                                 i=i+1
                             if monitor_stack[-1]==0:
-                                print("[error] ensures d"+str(ens_name[con_number])+" line:"+str(ori_num[ens_PC[con_number]]-1))
+                                print("[ENSURES violated] ensures d"+str(ens_name[con_number])+" line:"+str(ori_num[ens_PC[con_number]]-1))
                                 mode.value=1
                                 mchange_flag.value=0
                                 back_ens_com=ens_com[con_number]
@@ -1671,19 +1731,22 @@ if __name__ == '__main__':
                                 step_flag.value=0
                                 monitor_process_count.value=0
                         #    sys.exit()
-                            str2=input("1:backward 2:break")
-                            if str2=='2':
-                                for i in range(0,process_count.value,1):
-                                    if terminate_flag[i]==0:
-                                        terminate_flag[i]=1
-                                mlock.release()
-                                break
-                            elif str2=='1':
-                                mode.value=1
-                                mchange_flag.value=0
-                                step_flag.value=0
-                                monitor_process_count.value=0
-                        step_count=step_count+1
+                                print("1:Backward\n2:Break")
+                                str2=input(">")
+                                if str2=='2':
+                                    for i in range(0,process_count.value,1):
+                                        if terminate_flag[i]==0:
+                                            terminate_flag[i]=1
+                                    mlock.release()
+                                    break
+                                elif str2=='1':
+                                    mode.value=1
+                                    mchange_flag.value=0
+                                    step_flag.value=0
+                                    monitor_process_count.value=0
+                            if str4=='4':
+                                str6=input("Enter: next step")
+                            step_count=step_count+1
                 # mode selection end    
                 monitor_turn.value = 0
                 p_turn.value = 1
@@ -1695,3 +1758,5 @@ if __name__ == '__main__':
     
     elapsed_time = time.time()-start_time
     print("elapsed_time:{0}".format(elapsed_time) + "[sec]")
+###############End of Monitor########################################################################
+
