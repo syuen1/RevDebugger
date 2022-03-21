@@ -734,7 +734,7 @@ def executedcommand(stack,rstack,lstack,com,opr,back_com,back_opr,\
                         process[i].join()
             if terminate_count==end_process_count-start_process_count: # all subporcesses are terminated
               pre=pc
-              if monitor_turn.value == 0:
+              if p_turn.value == 1:
                 lock.acquire()
                 process_count.value=process_count.value-terminate_count
                 now_process_count.value=now_process_count.value+1       # resume this process               
@@ -795,7 +795,7 @@ def execution(command,opr,back_com,back_opr,start,end,count_pc,\
             lock.acquire()
             if mode.value != pre_mode:
                 my_initflag = 1 # mode changed this turn
-                print("Mode Change!! process_number=",process_number," mode=",mode.value," pre_mode=",pre_mode)
+#[0320]                print("Mode Change!! process_number=",process_number," mode=",mode.value," pre_mode=",pre_mode)
             pre_mode = mode.value
             #
             program_counter.value=pc
@@ -1007,7 +1007,7 @@ def execution(command,opr,back_com,back_opr,start,end,count_pc,\
                         if end==count_pc-int(s3.group())+1:
                             print("end_skip_flag set")
                             end_skip_flag=1
-                    print("pn:"+process_number+":jtop=",jtop," pc=",pc+1)
+#[0320]                    print("pn:"+process_number+":jtop=",jtop," pc=",pc+1)
                     #execute each instructions
                     if p_turn.value == 1:
                       (pc,pre,stack,top,rtop,tablecount,process_path)=\
@@ -1177,7 +1177,7 @@ def execution(command,opr,back_com,back_opr,start,end,count_pc,\
             #    or (back_com[pre]!=26 and mode.value==1) or mode.value==2: #and mode.value!=3 and mode.value!=4:
                 my_nonfork_flag = 0
                 mlock.release()
-                print("mlock.released in execution, mode=",mode.value)
+#0320           print("mlock.released in execution, mode=",mode.value)
             lock.release()
         ### end of one cycle ####
 #            print("lock released pc=",pc," process_number=",process_number,\
@@ -1464,7 +1464,7 @@ if __name__ == '__main__':
                         print("ensures check")
                     latest_pc=program_counter.value
                     i=0
-                    print("mode 1 check exp_pc=",exp_PC,"pc(real)=",program_counter.value,"("+str(count_pc-program_counter.value)+")")
+#[0320]                    print("mode 1 check exp_pc=",exp_PC,"pc(real)=",program_counter.value,"("+str(count_pc-program_counter.value)+")")
                     for check_PC in exp_PC:
 #                        if ((count_pc-check_PC)==program_counter.value and mode4_flag==0):
                         if (count_pc-check_PC)==program_counter.value:
