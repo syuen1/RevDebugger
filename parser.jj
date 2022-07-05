@@ -1049,7 +1049,7 @@ void EXP(s_table[] arr_table,s_table[] proc_table): {Token token1;
 		System.err.println("err");
 	}
 	} 
-	 (EC(arr_table,proc_table)|PR(arr_table,proc_table)) <RBRACKET> <RBRACKET>
+	 (EC(arr_table,proc_table) PR(arr_table,proc_table)) <RBRACKET> <RBRACKET>
 	{try{
 		FileWriter code = new FileWriter("contract_table.txt",true);
 		code.write("(");
@@ -1095,7 +1095,7 @@ void ENS(s_table[] arr_table,s_table[] proc_table): {Token token1;
 		System.err.println("err");
 	}
 	}
-	(EC(arr_table,proc_table) | PR(arr_table,proc_table)) <RBRACKET> <RBRACKET>
+	(EC(arr_table,proc_table) PR(arr_table,proc_table)) <RBRACKET> <RBRACKET>
 	{try{
 		FileWriter code = new FileWriter("contract_table.txt",true);
 		code.write("(");

@@ -321,7 +321,7 @@ def executedcommand(stack,rstack,lstack,com,opr,back_com,back_opr,\
     pc,pre,top,rtop,ltop,address,value,tablecount,variable_region,lock,\
         process_number,process_path,count_pc,process_count,terminate_flag,flag_number,\
         mlock,mlock2,program_counter,q,q2,q3,mode,mchange_flag,from_jump_flag,\
-        monitor_process_count,now_process_count,process_back_ori_num,step_flag,jmp_flag,monitor_turn,p_turn):
+        monitor_process_count,now_process_count,process_back_ori_num,step_flag,jmp_flag,monitor_turn,p_turn,gjtop):
     #print("exec command called")
     #push push immediate value onto own operation stack
     if com[pc]==1 and mode.value!=1:
@@ -337,7 +337,7 @@ def executedcommand(stack,rstack,lstack,com,opr,back_com,back_opr,\
             c=value[search_table(opr[pc],process_path)]
             value.release()
             top=push(c,stack,top)
-        # no operation for mode 3
+        # no operation for mode 
         pre=pc
         return (pc+1,pre,stack,top,rtop,tablecount,process_path)
     #store variable value to the variable stack and the value stack
@@ -361,7 +361,7 @@ def executedcommand(stack,rstack,lstack,com,opr,back_com,back_opr,\
         pre=pc
         return (pc+1,pre,stack,top,rtop,tablecount,process_path)
     #jpc pop the value at the top of own stack and jumps to the address of the operand if the value is 1
-    elif com[pc]==4 and mode.value!=1:
+    elif com[pc]==4 and mode.value!=1: #no jump in mode 1 (rev mode)
         if (mode.value==0 or  mode.value==4):
             (c,top)=pop1(stack,top)
             pre=pc
@@ -450,6 +450,7 @@ def executedcommand(stack,rstack,lstack,com,opr,back_com,back_opr,\
         pre=pc
         return (pc+1,pre,stack,top,rtop,tablecount,process_path)
     elif back_com[pc] == 7 and (mode.value==1): # jmp or jpc in the forward mode
+        #!!! decreas jtop???? in the process
         # reversed a jump in mode 1 for mode 3
         # in mode 3, first jpc/jmp follow as jstack[jtop]
         return (pc+1,pre,stack,top,rtop,tablecount,process_path)
@@ -883,7 +884,7 @@ def execution(command,opr,back_com,back_opr,start,end,count_pc,\
                         pc,pre,top,rtop,ltop,address,value,tablecount,variable_region,lock,\
                             process_number,process_path,count_pc,process_count,terminate_flag,flag_number,\
                                 mlock,mlock2,program_counter,q,q2,q3,mode,mchange_flag,from_jump_flag,\
-                                    monitor_process_count,now_process_count,process_back_ori_num,step_flag,0,monitor_turn,p_turn)
+                                    monitor_process_count,now_process_count,process_back_ori_num,step_flag,0,monitor_turn,p_turn,gjtop)
                   monitor_turn.value = 1 # changed program counter
                   p_turn.value = 0 # executed an instruction
                 if command[pre]==15: # fork has been executed: forked processes are terminated
@@ -1016,7 +1017,7 @@ def execution(command,opr,back_com,back_opr,start,end,count_pc,\
                                 lock,process_number,process_path,count_pc,process_count,\
                                     terminate_flag,flag_number,mlock,mlock2,program_counter,\
                                     q,q2,q3,mode,mchange_flag,from_jump_flag,monitor_process_count,\
-                                        now_process_count,process_back_ori_num,step_flag,jmp_flag,monitor_turn,p_turn)
+                                        now_process_count,process_back_ori_num,step_flag,jmp_flag,monitor_turn,p_turn,gjtop)
                       monitor_turn.value = 1 # pc changed
                       p_turn.value = 0
                     if back_com[pre]==26:
@@ -1142,7 +1143,7 @@ def execution(command,opr,back_com,back_opr,start,end,count_pc,\
                         pc,pre,top,rtop,ltop,address,value,tablecount,variable_region,lock,\
                             process_number,process_path,count_pc,process_count,terminate_flag,flag_number,\
                                 mlock,mlock2,program_counter,q,q2,q3,mode,mchange_flag,from_jump_flag,\
-                                    monitor_process_count,now_process_count,process_back_ori_num,step_flag,jmp_flag,monitor_turn,p_turn)
+                                    monitor_process_count,now_process_count,process_back_ori_num,step_flag,jmp_flag,monitor_turn,p_turn,gjtop)
                       monitor_turn.value = 1 # changed pc, next monitor_turn
                       p_turn.value = 0
                     if command[pre]==15: # all forked processes are terminated
@@ -1186,50 +1187,6 @@ def execution(command,opr,back_com,back_opr,start,end,count_pc,\
         now_process_count.value=now_process_count.value-1
         terminate_flag[flag_number]=1 # mark the process is done
 #        print("terminate execute "+str(flag_number))
-    '''
-    #backward not in use at the moment
-    if args[2]=='db' or args[2]=='b':
-        while pc!=end or command[pre]==26:
-            lock.acquire()
-            if command[pc]==21:
-                command1='    rjmp'
-            elif command[pc]==22:
-                command1='  restore'
-            elif command[pc]==23:
-                command1='     par'
-            elif command[pc]==24:
-                command1=' r_alloc'
-            elif command[pc]==25:
-                command1='  r_free'
-            elif command[pc]==26:
-                command1='  r_fork'
-            elif command[pc]==27:
-                command1=' r_merge'
-            elif command[pc]==28:
-                command1='     nop'
-            s=re.search(r'\d(\.\d+)*',lstack[ltop.value+1])
-            s2=re.search(r'\d(\.\d+)*',rstack[rtop.value+1])
-            if (process_number==s2.group() and (command[pc]==22 or command[pc]==24)) or (process_number==s.group() and command[pc]==21) or (command[pc]!=21 and command[pc]!=22 and command[pc]!=24):
-                with open("reverse_output.txt",'a') as f:
-                    f.write("~~~~~~~~Process"+process_number+" execute~~~~~~~~\n")
-                    f.write("path : "+process_path+"\n")
-                    f.write("pc = "+str(pc+1)+"("+str(count_pc-pc)+")   command = "+command1+":"+(str)(command[pc])+"    operand = "+str(opr[pc])+"\n")
-                print("~~~~~~~~Process"+process_number+" execute~~~~~~~~")
-                #print("path : "+process_path)
-#                print("pc = "+str(pc+1)+"("+str(count_pc-pc)+")   command = "+command1+":"+(str)(command[pc])+"    operand = "+str(opr[pc])+"")
-                (pc,pre,stack,top,rtop,tablecount,process_path)=executedcommand(stack,rstack,lstack,command,opr,pc,pre,\
-                    top,rtop,ltop,address,value,tablecount,variable_region,lock,process_number,process_path,\
-                        count_pc,process_count,terminate_flag,flag_number,jmp_flag,monitor_turn,p_turn)
-                if command[pre]==26:
-                    with open("reverse_output.txt",'a') as f:
-                        f.write("---fork end--- (process "+process_number+")\n")
-                    print("---fork end--- (process "+process_number+")")
-                with open("reverse_output.txt",'a') as f:
-                    f.write("shared variable stack: "+str(value[0:tablecount.value])+"\n\n")
-                print("shared variable stack: "+str(value[0:tablecount.value])+"\n")
-            lock.release()
-        terminate_flag[flag_number]=1
-    '''
     #return stack 
 ########################### execution end ###############################################       
 
